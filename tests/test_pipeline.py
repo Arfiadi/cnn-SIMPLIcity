@@ -11,7 +11,17 @@ from simplicity_cnn.data.transforms import build_transforms
 from simplicity_cnn.models.baseline_cnn import SimplicityBaselineCNN
 from simplicity_cnn.models.custom_scratch import SimplicityCustomCNN
 from simplicity_cnn.models.factory import build_model
-from simplicity_cnn.utils.env import detect_environment, get_default_data_dir, get_device
+from simplicity_cnn.models.transfer import (
+    SUPPORTED_BACKBONES,
+    freeze_backbone_batchnorm,
+    get_parameter_groups,
+)
+from simplicity_cnn.utils.env import (
+    detect_environment,
+    get_cuda_device_info,
+    get_default_data_dir,
+    get_device,
+)
 from simplicity_cnn.utils.seed import seed_everything
 
 
@@ -32,6 +42,15 @@ def test_environment_and_device():
 
     cpu_dev = get_device("cpu")
     assert cpu_dev.type == "cpu"
+
+
+def test_cuda_device_info():
+    info = get_cuda_device_info()
+    assert "available" in info
+    assert "count" in info
+    assert "devices" in info
+    assert "is_multi_gpu" in info
+    assert isinstance(info["devices"], list)
 
 
 def test_baseline_cnn_forward_shape():
@@ -72,8 +91,8 @@ def test_gradient_flow_and_optimization():
 
 
 def test_transforms_pipeline():
-    train_tf = build_transforms(img_size=(128, 128), augment=True)
-    val_tf = build_transforms(img_size=(128, 128), augment=False)
+    train_tf = build_transforms(img_size=(224, 224), augment=True)
+    val_tf = build_transforms(img_size=(224, 224), augment=False)
 
     from PIL import Image
 
@@ -82,8 +101,8 @@ def test_transforms_pipeline():
     tensor_train = train_tf(dummy_img)
     tensor_val = val_tf(dummy_img)
 
-    assert tensor_train.shape == (3, 128, 128)
-    assert tensor_val.shape == (3, 128, 128)
+    assert tensor_train.shape == (3, 224, 224)
+    assert tensor_val.shape == (3, 224, 224)
     assert tensor_train.dtype == torch.float32
     assert tensor_val.dtype == torch.float32
 
@@ -128,10 +147,49 @@ def test_dataset_split_disjointness():
 
 
 def test_transfer_models_forward_shape():
-    """Verify transfer learning backbones initialize and output correct shape without pretrained download."""
-    for model_name in ["resnet18", "mobilenet_v3_small"]:
+    """Verify all supported transfer learning backbones output correct shape on 224x224."""
+    for model_name in SUPPORTED_BACKBONES:
         model = build_model(model_name=model_name, num_classes=10, pretrained=False)
-        dummy_input = torch.randn(2, 3, 128, 128)
+        dummy_input = torch.randn(2, 3, 224, 224)
         output = model(dummy_input)
         assert output.shape == (2, 10), f"Expected shape (2, 10) for {model_name}, got {output.shape}"
 
+
+def test_parameter_groups_differential_lr():
+    """Verify get_parameter_groups splits backbone vs head correctly with differential LR."""
+    model = build_model(model_name="resnet18", num_classes=10, pretrained=False)
+    groups = get_parameter_groups(model, base_lr=3e-4, backbone_lr_ratio=0.1)
+
+    assert len(groups) == 2, "Should produce exactly 2 parameter groups (backbone and head)"
+    backbone_lr = groups[0]["lr"]
+    head_lr = groups[1]["lr"]
+    assert abs(backbone_lr - 3e-5) < 1e-8, f"Backbone LR should be 3e-5, got {backbone_lr}"
+    assert abs(head_lr - 3e-4) < 1e-8, f"Head LR should be 3e-4, got {head_lr}"
+
+    total_group_params = sum(p.numel() for g in groups for p in g["params"])
+    total_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    assert total_group_params == total_model_params, "All trainable parameters must be accounted for"
+
+
+def test_freeze_backbone_batchnorm():
+    """Verify BatchNorm layers are frozen in eval mode with requires_grad=False."""
+    model = build_model(model_name="resnet18", num_classes=10, pretrained=False)
+    freeze_backbone_batchnorm(model)
+
+    for m in model.modules():
+        if isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
+            assert not m.training, "BatchNorm should be set to eval mode"
+            for p in m.parameters():
+                assert not p.requires_grad, "BatchNorm parameters should not require grad"
+
+
+def test_dataparallel_checkpoint_unwrap():
+    """Verify checkpoint saved from DataParallel unwraps cleanly without 'module.' prefix."""
+    model = build_model(model_name="resnet18", num_classes=10, pretrained=False)
+    wrapped = torch.nn.DataParallel(model)
+
+    raw = wrapped.module if isinstance(wrapped, torch.nn.DataParallel) else wrapped
+    state = raw.state_dict()
+
+    for key in state:
+        assert not key.startswith("module."), f"Key '{key}' should not have 'module.' prefix"

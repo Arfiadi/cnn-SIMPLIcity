@@ -110,19 +110,23 @@ def build_transforms(
 
         return v2.Compose(ops)
 
-    # Validation / Test transform: deterministic only
+    # Validation / Test transform: deterministic resize of shorter edge followed by CenterCrop
+    # to maintain natural aspect ratios without distortion.
+    short_edge = min(target_size)
     if HAS_V2:
         return v2.Compose(
             [
                 v2.ToImage(),
-                v2.Resize(target_size, antialias=True),
+                v2.Resize(short_edge, antialias=True),
+                v2.CenterCrop(target_size),
                 v2.ToDtype(torch.float32, scale=True),
                 v2.Normalize(mean=mean_tuple, std=std_tuple),
             ]
         )
     return v2.Compose(
         [
-            v2.Resize(target_size),
+            v2.Resize(short_edge),
+            v2.CenterCrop(target_size),
             v2.ToTensor(),
             v2.Normalize(mean=mean_tuple, std=std_tuple),
         ]

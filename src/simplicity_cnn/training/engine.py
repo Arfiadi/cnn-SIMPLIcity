@@ -38,9 +38,21 @@ class Trainer:
         mode: str = "min",
         min_delta: float = 0.0005,
         label_smoothing: float = 0.0,
+        multi_gpu: bool = False,
     ) -> None:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
+
+        # Multi-GPU wrapping (DataParallel for Kaggle Jupyter compatibility)
+        self.multi_gpu = multi_gpu and (self.device.type == "cuda") and (torch.cuda.device_count() > 1)
+        if self.multi_gpu:
+            self.model = nn.DataParallel(self.model)
+            logger.info(
+                "DataParallel enabled across %d GPUs: %s",
+                torch.cuda.device_count(),
+                [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())],
+            )
+
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.optimizer = optimizer
@@ -64,6 +76,11 @@ class Trainer:
         # Baseline score tracker based on mode
         self.best_score: float = float("inf") if self.mode == "min" else float("-inf")
         self.best_epoch: int = -1
+
+    @property
+    def raw_model(self) -> nn.Module:
+        """Access underlying module unwrapped from DataParallel if wrapped."""
+        return self.model.module if isinstance(self.model, nn.DataParallel) else self.model
 
     def train_one_epoch(self, epoch: int) -> tuple[float, float]:
         """Execute one training epoch."""
@@ -147,9 +164,10 @@ class Trainer:
     def fit(self) -> dict[str, Any]:
         """Run complete training cycle with validation, early stopping, and checkpointing."""
         logger.info(
-            "Starting training for %d epochs on device: %s (AMP: %s, Monitor: %s %s)",
+            "Starting training for %d epochs on device: %s (Multi-GPU: %s, AMP: %s, Monitor: %s %s)",
             self.num_epochs,
             self.device,
+            self.multi_gpu,
             self.use_amp,
             self.monitor,
             self.mode,
@@ -245,9 +263,10 @@ class Trainer:
         self, filename: str, epoch: int, val_loss: float, val_acc: float, val_macro_f1: float
     ) -> Path:
         checkpoint_path = self.output_dir / filename
+        raw_model = self.raw_model
         checkpoint_data = {
             "epoch": epoch,
-            "model_state_dict": self.model.state_dict(),
+            "model_state_dict": raw_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "val_loss": val_loss,
             "val_acc": val_acc,

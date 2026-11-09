@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -171,3 +172,26 @@ def get_device(preference: str = "auto") -> torch.device:
         return torch.device("cpu")
 
     return torch.device("cpu")
+
+
+def get_cuda_device_info() -> dict[str, Any]:
+    """Retrieve detailed CUDA device topology for experiment logging.
+
+    Returns:
+        dict with keys: available, count, devices (list of name strings),
+        is_multi_gpu (bool).
+    """
+    if not torch.cuda.is_available():
+        return {"available": False, "count": 0, "devices": [], "is_multi_gpu": False}
+    count = torch.cuda.device_count()
+    devices: list[str] = []
+    for i in range(count):
+        name = torch.cuda.get_device_name(i)
+        mem_gb = torch.cuda.get_device_properties(i).total_mem / (1024 ** 3)
+        devices.append(f"{name} ({mem_gb:.1f} GB)")
+    return {
+        "available": True,
+        "count": count,
+        "devices": devices,
+        "is_multi_gpu": count > 1,
+    }

@@ -16,8 +16,9 @@ from simplicity_cnn.data.dataset import CLASS_NAMES, SIMPLIcityDataset
 from simplicity_cnn.data.transforms import build_transforms
 from simplicity_cnn.evaluation.metrics import evaluate_model
 from simplicity_cnn.models.factory import build_model
+from simplicity_cnn.models.transfer import get_parameter_groups
 from simplicity_cnn.training.engine import Trainer
-from simplicity_cnn.utils.env import get_default_data_dir, get_device
+from simplicity_cnn.utils.env import get_cuda_device_info, get_default_data_dir, get_device
 from simplicity_cnn.utils.logging_utils import setup_logger
 from simplicity_cnn.utils.seed import seed_everything
 
@@ -35,13 +36,24 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default=None,
-        help="Model architecture override: baseline_custom, custom_scratch, resnet18, mobilenet_v3_small.",
+        help="Model architecture override: baseline_custom, resnet18, resnet34, mobilenet_v3_large, efficientnet_b0, convnext_tiny.",
     )
     parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs.")
     parser.add_argument("--batch-size", type=int, default=None, help="Batch size.")
     parser.add_argument("--lr", type=float, default=None, help="Initial learning rate.")
     parser.add_argument("--device", type=str, default=None, help="Device: auto, cuda, cpu, mps.")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory.")
+    parser.add_argument(
+        "--multi-gpu",
+        action="store_true",
+        help="Enable DataParallel across all available CUDA GPUs.",
+    )
+    parser.add_argument(
+        "--backbone-lr-ratio",
+        type=float,
+        default=None,
+        help="Backbone LR ratio (e.g. 0.1 for 10x lower LR on backbone). Enables differential learning rate.",
+    )
     parser.add_argument(
         "--smoke-test",
         action="store_true",
@@ -90,17 +102,26 @@ def main() -> None:
     data_dir = Path(cfg.data.data_dir) if cfg.data.data_dir else get_default_data_dir()
     img_size: tuple[int, int] = (int(cfg.data.img_size[0]), int(cfg.data.img_size[1]))
 
+    # Log Hardware & Topology
+    cuda_info = get_cuda_device_info()
+    logger.info("=== Environment & Hardware Diagnostics ===")
+    logger.info("  CUDA Available:  %s", cuda_info["available"])
+    logger.info("  GPU Count:       %d", cuda_info["count"])
+    logger.info("  GPU Devices:     %s", cuda_info["devices"])
+    logger.info("  Multi-GPU Mode:  %s (CLI Requested: %s)", cuda_info["is_multi_gpu"], args.multi_gpu)
+
     logger.info("=== Experiment: %s ===", cfg.experiment_name)
-    logger.info("  Config Source: %s", args.config)
-    logger.info("  Data Dir:      %s", data_dir)
-    logger.info("  Model Name:    %s", cfg.model.name)
-    logger.info("  Image Size:    %s", img_size)
-    logger.info("  Batch Size:    %d", cfg.data.batch_size)
-    logger.info("  Epochs:        %d", cfg.training.epochs)
-    logger.info("  LR:            %.6f", cfg.training.lr)
-    logger.info("  Monitor:       %s (%s)", cfg.control.monitor, cfg.control.mode)
-    logger.info("  Label Smooth:  %.2f", cfg.training.label_smoothing)
-    logger.info("  Output Dir:    %s", output_dir)
+    logger.info("  Config Source:   %s", args.config)
+    logger.info("  Data Dir:        %s", data_dir)
+    logger.info("  Model Name:      %s", cfg.model.name)
+    logger.info("  Image Size:      %s", img_size)
+    logger.info("  Batch Size:      %d", cfg.data.batch_size)
+    logger.info("  Epochs:          %d", cfg.training.epochs)
+    logger.info("  LR:              %.6f", cfg.training.lr)
+    logger.info("  Backbone LR Rat: %s", args.backbone_lr_ratio)
+    logger.info("  Monitor:         %s (%s)", cfg.control.monitor, cfg.control.mode)
+    logger.info("  Label Smooth:    %.2f", cfg.training.label_smoothing)
+    logger.info("  Output Dir:      %s", output_dir)
 
     # 1. Seed
     seed_everything(cfg.environment.seed)
@@ -138,7 +159,7 @@ def main() -> None:
         data_dir, split="test", transform=eval_transform, sample_size=sample_size
     )
 
-    num_workers = cfg.data.num_workers if sys.platform != "win32" else 0
+    num_workers = min(cfg.data.num_workers, 4) if sys.platform != "win32" else 0
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.data.batch_size,
@@ -173,21 +194,34 @@ def main() -> None:
 
     # 5. Optimizer & Criterion
     criterion = nn.CrossEntropyLoss(label_smoothing=cfg.training.label_smoothing)
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
+
+    # Parameter groups (differential learning rate if requested)
+    backbone_ratio = args.backbone_lr_ratio
+    if backbone_ratio is not None and 0.0 < backbone_ratio < 1.0:
+        param_groups = get_parameter_groups(
+            model,
+            base_lr=cfg.training.lr,
+            backbone_lr_ratio=backbone_ratio,
+            weight_decay=cfg.training.weight_decay,
+        )
+        logger.info("Configured differential learning rate (backbone ratio: %.3f)", backbone_ratio)
+    else:
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        param_groups = [{"params": trainable_params}]
 
     opt_name = cfg.training.optimizer.lower()
     optimizer: torch.optim.Optimizer
     if opt_name == "adamw":
         optimizer = torch.optim.AdamW(
-            trainable_params, lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
+            param_groups, lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
         )
     elif opt_name == "adam":
         optimizer = torch.optim.Adam(
-            trainable_params, lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
+            param_groups, lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
         )
     elif opt_name == "sgd":
         optimizer = torch.optim.SGD(
-            trainable_params,
+            param_groups,
             lr=cfg.training.lr,
             momentum=cfg.training.momentum,
             weight_decay=cfg.training.weight_decay,
@@ -230,20 +264,22 @@ def main() -> None:
         mode=cfg.control.mode,
         min_delta=cfg.control.min_delta,
         label_smoothing=cfg.training.label_smoothing,
+        multi_gpu=args.multi_gpu,
     )
 
     train_results = trainer.fit()
 
     # 8. Final evaluation on Test Set
+    eval_model = trainer.raw_model
     best_checkpoint = output_dir / "best_model.pt"
     if best_checkpoint.exists():
         logger.info("Loading best checkpoint for test set evaluation: %s", best_checkpoint)
         ckpt = torch.load(best_checkpoint, map_location=device, weights_only=True)
-        model.load_state_dict(ckpt["model_state_dict"])
+        eval_model.load_state_dict(ckpt["model_state_dict"])
 
     logger.info("Running evaluation on test split (%d samples)...", len(test_ds))
     eval_results = evaluate_model(
-        model=model,
+        model=eval_model,
         test_loader=test_loader,
         device=device,
         class_names=CLASS_NAMES,

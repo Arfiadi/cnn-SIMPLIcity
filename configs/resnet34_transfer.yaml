@@ -1,0 +1,60 @@
+experiment_name: "resnet34_pretrained_224"
+
+environment:
+  device: "auto"
+  precision: "amp_fp16"
+  seed: 42
+  deterministic_cudnn: true
+
+data:
+  dataset_name: "SIMPLIcity"
+  data_dir: null
+  img_size: [224, 224]
+  num_classes: 10
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5
+    rotation_degrees: 15
+    color_jitter: [0.2, 0.2, 0.2]
+    random_erasing_prob: 0.10
+    crop_scale: [0.75, 1.0]
+
+model:
+  name: "resnet34"
+  num_classes: 10
+  activation: "relu"
+  dropout_rate: 0.2
+  use_batch_norm: true
+  pretrained: true                       # ImageNet-1K pretrained backbone
+  freeze_backbone: false
+
+training:
+  epochs: 25
+  optimizer: "adamw"
+  lr: 0.0003
+  min_lr: 0.000001
+  weight_decay: 0.0001
+  momentum: 0.9
+  scheduler: "cosine"
+  loss_name: "cross_entropy"
+  label_smoothing: 0.05
+  gradient_clipping: 1.0
+
+control:
+  early_stopping_enabled: true
+  monitor: "val_macro_f1"
+  mode: "max"
+  patience: 7
+  min_delta: 0.001
+  output_dir: "outputs/resnet34_pretrained_224"
+
+evaluation:
+  batch_size: 32
+  metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
+  generate_confusion_matrix: true
+  error_analysis_top_k: 10

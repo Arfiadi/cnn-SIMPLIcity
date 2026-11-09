@@ -16,8 +16,11 @@ AVAILABLE_MODELS: list[str] = [
     "baseline_custom",
     "custom_scratch",
     "resnet18",
+    "resnet34",
     "mobilenet_v3_small",
+    "mobilenet_v3_large",
     "efficientnet_b0",
+    "convnext_tiny",
 ]
 
 
@@ -59,10 +62,13 @@ def build_model(
 
     if name in {
         "resnet18",
+        "resnet34",
         "mobilenet_v3_small",
         "mobilenet_v3",
+        "mobilenet_v3_large",
         "efficientnet_b0",
         "efficientnet",
+        "convnext_tiny",
     }:
         logger.info(
             "Instantiating transfer model '%s' (pretrained=%s, freeze=%s)",

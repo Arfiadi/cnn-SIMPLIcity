@@ -66,3 +66,4 @@ scratch_eda_summary.json
 # OS specific
 .DS_Store
 Thumbs.db
+*.pdf
