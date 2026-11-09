@@ -24,6 +24,8 @@ def test_all_dedicated_yaml_configs():
         "configs/custom_scratch_regularized.yaml",
         "configs/resnet18_transfer.yaml",
         "configs/smoke_test.yaml",
+        "configs/efficientnet_b0.yaml",
+        "configs/efficientnet_b0_v4_expert.yaml",
     ]
     for yf in yaml_files:
         assert Path(yf).exists(), f"Configuration file {yf} must exist"
@@ -32,6 +34,16 @@ def test_all_dedicated_yaml_configs():
         assert cfg.data.num_classes == 10
         assert cfg.training.epochs > 0
         assert cfg.training.lr > 0
+
+
+def test_v4_expert_config_parameters():
+    cfg = load_config("configs/efficientnet_b0_v4_expert.yaml")
+    assert cfg.model.name == "efficientnet_b0"
+    assert cfg.model.pooling == "gem"
+    assert cfg.model.freeze_bn is True
+    assert cfg.training.loss_name == "focal"
+    assert cfg.training.focal_gamma == 1.5
+    assert cfg.data.test_crop is False
 
 
 def test_eda_treatment_config_parameters():

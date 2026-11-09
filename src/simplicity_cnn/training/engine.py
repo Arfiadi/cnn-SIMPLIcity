@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
@@ -15,6 +16,53 @@ from simplicity_cnn.models.transfer import get_parameter_groups
 from simplicity_cnn.training.tracker import TrainingTracker
 
 logger = logging.getLogger(__name__)
+
+
+class FocalLoss(nn.Module):
+    """Multi-class Focal Loss with optional label smoothing.
+
+    FL(p_t) = - (1 - p_t)^gamma * log(p_t)
+    Downweights easily classified samples so training concentrates gradient
+    magnitude on hard ambiguous boundary cases.
+
+    Args:
+        gamma: Focusing parameter (default 1.5).
+        weight: Optional class weights tensor of shape (num_classes,).
+        label_smoothing: Smoothing probability applied to targets.
+        reduction: 'mean', 'sum', or 'none'.
+    """
+
+    def __init__(
+        self,
+        gamma: float = 1.5,
+        weight: torch.Tensor | None = None,
+        label_smoothing: float = 0.0,
+        reduction: str = "mean",
+    ) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.weight = weight
+        self.label_smoothing = label_smoothing
+        self.reduction = reduction
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        ce_loss = F.cross_entropy(
+            inputs,
+            targets,
+            weight=self.weight,
+            label_smoothing=self.label_smoothing,
+            reduction="none",
+        )
+        p = torch.softmax(inputs, dim=-1)
+        p_t = p.gather(1, targets.unsqueeze(1)).squeeze(1)
+        modulating_factor = (1.0 - p_t).clamp(min=0.0, max=1.0).pow(self.gamma)
+        loss = modulating_factor * ce_loss
+
+        if self.reduction == "mean":
+            return loss.mean()
+        if self.reduction == "sum":
+            return loss.sum()
+        return loss
 
 
 class Trainer:
@@ -44,9 +92,11 @@ class Trainer:
         base_lr: float = 3e-4,
         min_lr: float = 1e-6,
         weight_decay: float = 1e-4,
+        freeze_bn: bool = False,
     ) -> None:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
+        self.freeze_bn = freeze_bn
 
         # Multi-GPU wrapping (DataParallel for Kaggle Jupyter compatibility)
         self.multi_gpu = (
@@ -107,6 +157,10 @@ class Trainer:
     def train_one_epoch(self, epoch: int) -> tuple[float, float]:
         """Execute one training epoch."""
         self.model.train()
+        if self.freeze_bn:
+            for module in self.model.modules():
+                if isinstance(module, (nn.BatchNorm2d, nn.BatchNorm1d)):
+                    module.eval()
         running_loss = 0.0
         correct = 0
         total = 0

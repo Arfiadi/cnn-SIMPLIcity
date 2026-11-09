@@ -1,0 +1,68 @@
+experiment_name: "efficientnet_b0_v4_expert"
+
+environment:
+  device: "auto"
+  precision: "amp_fp16"
+  seed: 42
+  deterministic_cudnn: true
+
+data:
+  dataset_name: "SIMPLIcity"
+  data_dir: null
+  img_size: [224, 224]                   # Canonical ImageNet resolution
+  preserve_aspect_ratio: false           # Full-canvas coverage
+  test_crop: false                       # Tuas 1: Anisotropic resize without CenterCrop (preserves mountain peaks)
+  num_classes: 10
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5
+    rotation_degrees: 12
+    color_jitter: [0.15, 0.15, 0.15]
+    random_erasing_prob: 0.08
+    crop_scale: [0.90, 1.0]              # Soft crop scale retaining vertical structural geometry
+
+model:
+  name: "efficientnet_b0"
+  num_classes: 10
+  activation: "silu"
+  dropout_rate: 0.20
+  use_batch_norm: true
+  pretrained: true                       # ImageNet-1K pretrained weights
+  freeze_backbone: false
+  head_type: "linear"                    # Calibrated 12.8k parameter linear head
+  pooling: "gem"                         # Tuas 3: Generalized Mean (GeM) Pooling (p=3.0)
+  freeze_bn: true                        # Tuas 2: Freeze BatchNorm running stats to preserve ImageNet fidelity
+
+training:
+  epochs: 22
+  optimizer: "adamw"
+  lr: 0.00030
+  min_lr: 0.000001
+  weight_decay: 0.0001
+  momentum: 0.9
+  scheduler: "cosine"
+  loss_name: "focal"                     # Tuas 4: Multi-Class Focal Loss targeting ambiguous boundaries
+  focal_gamma: 1.5
+  label_smoothing: 0.02
+  gradient_clipping: 1.0
+  warmup_head_epochs: 0                  # End-to-end fine-tuning from epoch 1
+
+control:
+  early_stopping_enabled: true
+  monitor: "val_macro_f1"
+  mode: "max"
+  patience: 8
+  min_delta: 0.001
+  output_dir: "outputs/efficientnet_b0_v4_expert"
+
+evaluation:
+  batch_size: 32
+  metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
+  generate_confusion_matrix: true
+  error_analysis_top_k: 10
+  use_tta: false                         # Single-pass deterministic evaluation

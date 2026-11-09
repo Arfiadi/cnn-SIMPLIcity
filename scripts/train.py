@@ -22,7 +22,7 @@ from simplicity_cnn.data.transforms import build_transforms
 from simplicity_cnn.evaluation.metrics import evaluate_model
 from simplicity_cnn.models.factory import build_model
 from simplicity_cnn.models.transfer import get_parameter_groups
-from simplicity_cnn.training.engine import Trainer
+from simplicity_cnn.training.engine import FocalLoss, Trainer
 from simplicity_cnn.utils.env import get_cuda_device_info, get_default_data_dir, get_device
 from simplicity_cnn.utils.logging_utils import setup_logger
 from simplicity_cnn.utils.seed import seed_everything
@@ -178,6 +178,7 @@ def main() -> None:
         mean=cfg.data.mean,
         std=cfg.data.std,
         preserve_aspect_ratio=cfg.data.preserve_aspect_ratio,
+        test_crop=getattr(cfg.data, "test_crop", True),
     )
 
     train_ds = SIMPLIcityDataset(
@@ -222,10 +223,23 @@ def main() -> None:
         pretrained=cfg.model.pretrained,
         freeze_backbone=cfg.model.freeze_backbone,
         head_type=cfg.model.head_type,
+        dropout_rate=cfg.model.dropout_rate,
+        pooling=getattr(cfg.model, "pooling", "avg"),
+        freeze_bn=getattr(cfg.model, "freeze_bn", False),
     )
 
     # 5. Optimizer & Criterion
-    criterion = nn.CrossEntropyLoss(label_smoothing=cfg.training.label_smoothing)
+    loss_name = getattr(cfg.training, "loss_name", "cross_entropy").lower()
+    if loss_name == "focal":
+        focal_gamma = getattr(cfg.training, "focal_gamma", 1.5)
+        logger.info(
+            "Using FocalLoss(gamma=%.2f, label_smoothing=%.2f)",
+            focal_gamma,
+            cfg.training.label_smoothing,
+        )
+        criterion = FocalLoss(gamma=focal_gamma, label_smoothing=cfg.training.label_smoothing)
+    else:
+        criterion = nn.CrossEntropyLoss(label_smoothing=cfg.training.label_smoothing)
 
     # Parameter groups (differential learning rate if requested)
     backbone_ratio = args.backbone_lr_ratio or 0.1
@@ -309,6 +323,7 @@ def main() -> None:
         base_lr=cfg.training.lr,
         min_lr=cfg.training.min_lr,
         weight_decay=cfg.training.weight_decay,
+        freeze_bn=getattr(cfg.model, "freeze_bn", False),
     )
 
     # Print concise execution summary card

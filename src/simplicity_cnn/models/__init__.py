@@ -3,10 +3,11 @@
 from simplicity_cnn.models.baseline_cnn import SimplicityBaselineCNN
 from simplicity_cnn.models.custom_scratch import SimplicityCustomCNN
 from simplicity_cnn.models.factory import AVAILABLE_MODELS, build_model
-from simplicity_cnn.models.transfer import build_transfer_model
+from simplicity_cnn.models.transfer import GeMPool2d, build_transfer_model
 
 __all__ = [
     "AVAILABLE_MODELS",
+    "GeMPool2d",
     "SimplicityBaselineCNN",
     "SimplicityCustomCNN",
     "build_model",

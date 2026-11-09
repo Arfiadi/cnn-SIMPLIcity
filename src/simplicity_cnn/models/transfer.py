@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import models
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,39 @@ SUPPORTED_BACKBONES: list[str] = [
     "efficientnet_b0",
     "convnext_tiny",
 ]
+
+
+class GeMPool2d(nn.Module):
+    """Generalized Mean (GeM) Pooling 2D layer.
+
+    Computes: f(x) = (1/|x| * sum(x^p))^(1/p)
+    Emphasizes salient localized peak activations over diffuse homogeneous backgrounds.
+    When p=1, it is identical to standard average pooling.
+    When p -> infinity, it approaches global max pooling.
+
+    Args:
+        p: Initial power value (default 3.0).
+        eps: Small numerical stabilizer epsilon.
+        learnable: Whether power p is a trainable parameter.
+    """
+
+    def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = False) -> None:
+        super().__init__()
+        if learnable:
+            self.p = nn.Parameter(torch.ones(1) * p)
+        else:
+            self.register_buffer("p", torch.tensor(p, dtype=torch.float32))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_clamped = x.clamp(min=self.eps)
+        x_pow = x_clamped.pow(self.p)
+        pooled = F.adaptive_avg_pool2d(x_pow, (1, 1))
+        return pooled.pow(1.0 / self.p)
+
+    def __repr__(self) -> str:
+        p_val = self.p.item() if isinstance(self.p, torch.Tensor) else float(self.p)
+        return f"GeMPool2d(p={p_val:.2f}, eps={self.eps})"
 
 
 def freeze_backbone_batchnorm(model: nn.Module) -> None:
@@ -103,6 +138,8 @@ def build_transfer_model(
     freeze_backbone: bool = False,
     head_type: str = "standard",
     dropout_rate: float = 0.25,
+    pooling: str = "avg",
+    freeze_bn: bool = False,
 ) -> nn.Module:
     """Build a transfer learning model with modified classification head.
 
@@ -113,6 +150,8 @@ def build_transfer_model(
         freeze_backbone: Whether to freeze feature extractor layers.
         head_type: Classification head architecture ("standard", "linear", or "enhanced").
         dropout_rate: Dropout probability for classification head (default 0.25).
+        pooling: Spatial pooling mode ("avg" for standard AdaptiveAvgPool2d or "gem" for GeMPool2d).
+        freeze_bn: Whether to freeze BatchNorm statistics (eval mode) during fine-tuning.
 
     Returns:
         nn.Module: Configured PyTorch model ready for fine-tuning.
@@ -127,6 +166,10 @@ def build_transfer_model(
             for param in model.parameters():
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
+        elif freeze_bn:
+            freeze_backbone_batchnorm(model)
+        if pooling.lower() == "gem":
+            model.avgpool = GeMPool2d(p=3.0)
         in_features = model.fc.in_features
         if head_type.lower() == "enhanced":
             model.fc = nn.Sequential(
@@ -152,6 +195,10 @@ def build_transfer_model(
             for param in model.parameters():
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
+        elif freeze_bn:
+            freeze_backbone_batchnorm(model)
+        if pooling.lower() == "gem":
+            model.avgpool = GeMPool2d(p=3.0)
         in_features = model.fc.in_features
         if head_type.lower() == "enhanced":
             model.fc = nn.Sequential(
@@ -178,6 +225,10 @@ def build_transfer_model(
             for param in model.parameters():
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
+        elif freeze_bn:
+            freeze_backbone_batchnorm(model)
+        if pooling.lower() == "gem":
+            model.avgpool = GeMPool2d(p=3.0)
         in_features = model.classifier[3].in_features
         model.classifier[2] = nn.Dropout(p=dropout_rate)
         model.classifier[3] = nn.Linear(in_features, num_classes)
@@ -190,6 +241,10 @@ def build_transfer_model(
             for param in model.parameters():
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
+        elif freeze_bn:
+            freeze_backbone_batchnorm(model)
+        if pooling.lower() == "gem":
+            model.avgpool = GeMPool2d(p=3.0)
         in_features = model.classifier[3].in_features
         model.classifier[2] = nn.Dropout(p=dropout_rate)
         model.classifier[3] = nn.Linear(in_features, num_classes)
@@ -203,6 +258,13 @@ def build_transfer_model(
             for param in model.parameters():
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
+        elif freeze_bn:
+            freeze_backbone_batchnorm(model)
+
+        if pooling.lower() == "gem":
+            logger.info("Replacing EfficientNet-B0 avgpool with GeMPool2d(p=3.0)")
+            model.avgpool = GeMPool2d(p=3.0)
+
         in_features = model.classifier[1].in_features
         if head_type.lower() == "enhanced":
             model.classifier = nn.Sequential(
@@ -216,7 +278,7 @@ def build_transfer_model(
             )
         else:
             model.classifier = nn.Sequential(
-                nn.Dropout(p=dropout_rate, inplace=True),
+                nn.Dropout(p=dropout_rate),
                 nn.Linear(in_features, num_classes),
             )
         return model
@@ -228,6 +290,8 @@ def build_transfer_model(
         if freeze_backbone:
             for param in model.parameters():
                 param.requires_grad = False
+        if pooling.lower() == "gem":
+            model.avgpool = GeMPool2d(p=3.0)
         in_features = model.classifier[2].in_features
         model.classifier[2] = nn.Linear(in_features, num_classes)
         return model

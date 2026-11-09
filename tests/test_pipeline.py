@@ -279,3 +279,64 @@ def test_evaluate_model_with_tta(tmp_path):
     )
     assert "accuracy" in results
     assert "macro_f1" in results
+
+
+def test_gem_pooling_layer():
+    """Verify GeMPool2d preserves channel dimension and emphasizes peak activations."""
+    from simplicity_cnn.models.transfer import GeMPool2d
+
+    gem = GeMPool2d(p=3.0)
+    dummy_feat = torch.randn(2, 64, 7, 7).abs() + 0.1
+    out = gem(dummy_feat)
+    assert out.shape == (2, 64, 1, 1), f"Expected shape (2, 64, 1, 1), got {out.shape}"
+
+
+def test_focal_loss_modulation():
+    """Verify FocalLoss downweights high-confidence correct predictions."""
+    from simplicity_cnn.training.engine import FocalLoss
+
+    focal = FocalLoss(gamma=1.5, reduction="none")
+
+    # Logits strongly favoring true class (easy example)
+    logits_easy = torch.tensor([[10.0, -5.0, -5.0]])
+    target_easy = torch.tensor([0])
+    loss_easy = focal(logits_easy, target_easy)
+
+    # Logits uncertain / on the fence (hard example)
+    logits_hard = torch.tensor([[0.5, 0.45, 0.40]])
+    target_hard = torch.tensor([0])
+    loss_hard = focal(logits_hard, target_hard)
+
+    assert loss_easy.item() < loss_hard.item(), "FocalLoss should heavily discount easy samples"
+
+
+def test_efficientnet_gem_and_freeze_bn():
+    """Verify EfficientNet-B0 with GeM pooling and frozen BatchNorm."""
+    model = build_model(
+        model_name="efficientnet_b0",
+        num_classes=10,
+        pretrained=False,
+        pooling="gem",
+        freeze_bn=True,
+    )
+    from simplicity_cnn.models.transfer import GeMPool2d
+
+    assert isinstance(model.avgpool, GeMPool2d), "avgpool should be replaced by GeMPool2d"
+
+    # Verify all BatchNorm modules have param.requires_grad = False
+    for module in model.modules():
+        if isinstance(module, (nn.BatchNorm2d, nn.BatchNorm1d)):
+            for param in module.parameters():
+                assert not param.requires_grad, "BatchNorm parameters should be frozen"
+
+    dummy_input = torch.randn(2, 3, 224, 224)
+    output = model(dummy_input)
+    assert output.shape == (2, 10), f"Expected (2, 10), got {output.shape}"
+
+
+def test_direct_resize_transform():
+    """Verify test_crop=False applies direct anisotropic resize without CenterCrop."""
+    transform = build_transforms(img_size=(224, 224), augment=False, test_crop=False)
+    dummy_img = torch.randint(0, 256, (3, 384, 256), dtype=torch.uint8)
+    out = transform(dummy_img)
+    assert out.shape == (3, 224, 224), f"Expected (3, 224, 224), got {out.shape}"

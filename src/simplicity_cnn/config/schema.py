@@ -40,6 +40,7 @@ class DataConfig:
     num_workers: int = 2
     pin_memory: bool = True
     preserve_aspect_ratio: bool = False
+    test_crop: bool = True
     mean: list[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
     std: list[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
     augmentation: DataAugmentationConfig = field(default_factory=DataAugmentationConfig)
@@ -55,6 +56,8 @@ class ModelConfig:
     pretrained: bool = True
     freeze_backbone: bool = False
     head_type: str = "standard"
+    pooling: str = "avg"
+    freeze_bn: bool = False
 
 
 @dataclass
@@ -67,6 +70,7 @@ class TrainingConfig:
     momentum: float = 0.9
     scheduler: str = "cosine"
     loss_name: str = "cross_entropy"
+    focal_gamma: float = 1.5
     label_smoothing: float = 0.0
     gradient_clipping: float = 1.0
     warmup_head_epochs: int = 0
@@ -114,6 +118,14 @@ class ExperimentConfig:
         if not (0.0 <= self.training.label_smoothing < 1.0):
             raise ValueError(
                 f"label_smoothing must be in [0, 1), got {self.training.label_smoothing}"
+            )
+        if self.training.loss_name.lower() not in {"cross_entropy", "focal"}:
+            raise ValueError(
+                f"Unsupported loss_name: '{self.training.loss_name}'. Expected 'cross_entropy' or 'focal'."
+            )
+        if self.model.pooling.lower() not in {"avg", "gem"}:
+            raise ValueError(
+                f"Unsupported pooling: '{self.model.pooling}'. Expected 'avg' or 'gem'."
             )
         if self.control.monitor not in {"val_loss", "val_acc", "val_macro_f1"}:
             logger.warning(

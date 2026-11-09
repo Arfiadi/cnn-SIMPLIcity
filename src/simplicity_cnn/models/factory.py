@@ -70,20 +70,28 @@ def build_model(
         "efficientnet",
         "convnext_tiny",
     }:
+        pooling = kwargs.get("pooling", "avg")
+        freeze_bn = kwargs.get("freeze_bn", False)
+        head_type = kwargs.get("head_type", "standard")
+        dropout_rate = kwargs.get("dropout_rate", 0.25)
         logger.info(
-            "Instantiating transfer model '%s' (pretrained=%s, freeze=%s, head_type=%s)",
+            "Instantiating transfer model '%s' (pretrained=%s, freeze=%s, head_type=%s, pooling=%s, freeze_bn=%s)",
             name,
             pretrained,
             freeze_backbone,
-            kwargs.get("head_type", "standard"),
+            head_type,
+            pooling,
+            freeze_bn,
         )
         return build_transfer_model(
             model_name=name,
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=freeze_backbone,
-            head_type=kwargs.get("head_type", "standard"),
-            dropout_rate=kwargs.get("dropout_rate", 0.25),
+            head_type=head_type,
+            dropout_rate=dropout_rate,
+            pooling=pooling,
+            freeze_bn=freeze_bn,
         )
 
     raise ValueError(f"Unknown model name: '{model_name}'. Available: {AVAILABLE_MODELS}")

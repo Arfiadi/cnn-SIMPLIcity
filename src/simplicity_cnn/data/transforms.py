@@ -99,6 +99,7 @@ def build_transforms(
     crop_scale: tuple[float, float] | list[float] | None = None,
     random_erasing_prob: float = 0.0,
     preserve_aspect_ratio: bool = False,
+    test_crop: bool = True,
 ) -> Callable:
     """Build train or validation/test transformation pipeline with EDA mitigations.
 
@@ -113,11 +114,14 @@ def build_transforms(
         crop_scale: Optional scale range for RandomResizedCrop to perturb aspect ratio.
         random_erasing_prob: Probability of random erasing to destroy uniform backgrounds.
         preserve_aspect_ratio: If True, uses LetterboxPad to preserve 100% of image geometry without cropping.
+        test_crop: If True (default), applies Resize(short_edge) + CenterCrop for eval. If False, applies direct anisotropic Resize(target_size).
 
     Returns:
         Callable: Composed transformation pipeline.
     """
-    target_size = (img_size, img_size) if isinstance(img_size, int) else tuple(img_size)
+    target_size: tuple[int, int] = (
+        (img_size, img_size) if isinstance(img_size, int) else (int(img_size[0]), int(img_size[1]))
+    )
     mean_tuple = tuple(mean)
     std_tuple = tuple(std)
 
@@ -206,6 +210,25 @@ def build_transforms(
         return v2.Compose(
             [
                 LetterboxPad(target_size=target_size),
+                v2.ToTensor(),
+                v2.Normalize(mean=mean_tuple, std=std_tuple),
+            ]
+        )
+
+    if not test_crop:
+        # Direct anisotropic resize preserving 100% of spatial canvas geometry
+        if HAS_V2:
+            return v2.Compose(
+                [
+                    v2.ToImage(),
+                    v2.Resize(target_size, antialias=True),
+                    v2.ToDtype(torch.float32, scale=True),
+                    v2.Normalize(mean=mean_tuple, std=std_tuple),
+                ]
+            )
+        return v2.Compose(
+            [
+                v2.Resize(target_size),
                 v2.ToTensor(),
                 v2.Normalize(mean=mean_tuple, std=std_tuple),
             ]
