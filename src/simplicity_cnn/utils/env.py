@@ -38,7 +38,10 @@ def _find_dataset_root(search_dir: Path | str) -> Path | None:
     try:
         for root, dirs, _ in os.walk(base, followlinks=True):
             parts = Path(root).parts
-            if any(p.startswith(".") or p in {"__pycache__", "site-packages", "node_modules"} for p in parts):
+            if any(
+                p.startswith(".") or p in {"__pycache__", "site-packages", "node_modules"}
+                for p in parts
+            ):
                 continue
             dirs_lower = {d.lower(): d for d in dirs}
             if "train" in dirs_lower:
@@ -189,7 +192,7 @@ def get_cuda_device_info() -> dict[str, Any]:
         name = torch.cuda.get_device_name(i)
         props = torch.cuda.get_device_properties(i)
         mem_bytes = getattr(props, "total_memory", getattr(props, "total_mem", 0))
-        mem_gb = mem_bytes / (1024 ** 3)
+        mem_gb = mem_bytes / (1024**3)
         devices.append(f"{name} ({mem_gb:.1f} GB)")
     return {
         "available": True,

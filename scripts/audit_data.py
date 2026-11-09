@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Ensure repository root src/ directory is available in sys.path
+_repo_src = Path(__file__).resolve().parent.parent / "src"
+if _repo_src.is_dir() and str(_repo_src) not in sys.path:
+    sys.path.insert(0, str(_repo_src))
 
 from simplicity_cnn.data.audit import audit_dataset
 from simplicity_cnn.data.dataset import CLASS_NAMES

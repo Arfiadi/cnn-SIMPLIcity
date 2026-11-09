@@ -49,7 +49,9 @@ class Trainer:
         self.model = model.to(self.device)
 
         # Multi-GPU wrapping (DataParallel for Kaggle Jupyter compatibility)
-        self.multi_gpu = multi_gpu and (self.device.type == "cuda") and (torch.cuda.device_count() > 1)
+        self.multi_gpu = (
+            multi_gpu and (self.device.type == "cuda") and (torch.cuda.device_count() > 1)
+        )
         if self.multi_gpu:
             self.model = nn.DataParallel(self.model)
             logger.info(

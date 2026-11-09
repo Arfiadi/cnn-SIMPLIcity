@@ -130,7 +130,9 @@ def build_transforms(
             if preserve_aspect_ratio:
                 ops.append(LetterboxPad(target_size=target_size))
             elif crop_scale and crop_scale[0] < 1.0:
-                ops.append(v2.RandomResizedCrop(target_size, scale=tuple(crop_scale), antialias=True))
+                ops.append(
+                    v2.RandomResizedCrop(target_size, scale=tuple(crop_scale), antialias=True)
+                )
             else:
                 ops.append(v2.Resize(target_size, antialias=True))
 

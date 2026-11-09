@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Ensure repository root src/ directory is available in sys.path
+_repo_src = Path(__file__).resolve().parent.parent / "src"
+if _repo_src.is_dir() and str(_repo_src) not in sys.path:
+    sys.path.insert(0, str(_repo_src))
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -308,9 +313,7 @@ def main() -> None:
 
     # Print concise execution summary card
     device_desc = (
-        f"{device} ({', '.join(cuda_info['devices'])})"
-        if cuda_info["available"]
-        else str(device)
+        f"{device} ({', '.join(cuda_info['devices'])})" if cuda_info["available"] else str(device)
     )
     lr_desc = f"{cfg.training.lr:.2e}"
     if 0.0 < backbone_ratio < 1.0:
@@ -320,10 +323,18 @@ def main() -> None:
     aspect_desc = "Letterbox" if cfg.data.preserve_aspect_ratio else "CenterCrop"
     print("=" * banner_width)
     print(f" SIMPLIcity Experiment : {cfg.experiment_name}")
-    print(f" Architecture          : {cfg.model.name} (Head: {cfg.model.head_type}, Pretrained: {cfg.model.pretrained})")
-    print(f" Compute Device        : {device_desc} | Multi-GPU: {trainer_multi_gpu} | AMP: {use_amp}")
-    print(f" Data Configuration    : Batch: {cfg.data.batch_size} | Size: {img_size[0]}x{img_size[1]} ({aspect_desc}) | Workers: {num_workers}")
-    print(f" Optimization          : {cfg.training.epochs} ep (Warmup: {cfg.training.warmup_head_epochs} ep) | Opt: {cfg.training.optimizer} (LR: {lr_desc})")
+    print(
+        f" Architecture          : {cfg.model.name} (Head: {cfg.model.head_type}, Pretrained: {cfg.model.pretrained})"
+    )
+    print(
+        f" Compute Device        : {device_desc} | Multi-GPU: {trainer_multi_gpu} | AMP: {use_amp}"
+    )
+    print(
+        f" Data Configuration    : Batch: {cfg.data.batch_size} | Size: {img_size[0]}x{img_size[1]} ({aspect_desc}) | Workers: {num_workers}"
+    )
+    print(
+        f" Optimization          : {cfg.training.epochs} ep (Warmup: {cfg.training.warmup_head_epochs} ep) | Opt: {cfg.training.optimizer} (LR: {lr_desc})"
+    )
     print("=" * banner_width)
 
     train_results = trainer.fit()
@@ -352,7 +363,9 @@ def main() -> None:
     print("=" * banner_width)
     print(f" Experiment Name    : {cfg.experiment_name}")
     print(f" Model Architecture : {cfg.model.name} (Head: {cfg.model.head_type})")
-    print(f" Best {cfg.control.monitor:<13} : {train_results['best_score']:.4f} (Epoch {train_results['best_epoch']})")
+    print(
+        f" Best {cfg.control.monitor:<13} : {train_results['best_score']:.4f} (Epoch {train_results['best_epoch']})"
+    )
     print(f" Test Accuracy      : {eval_results['accuracy'] * 100:.2f}% (TTA: {use_tta})")
     print(f" Test Macro F1      : {eval_results['macro_f1']:.4f}")
     print(f" Artifacts Saved To : {output_dir.resolve()}")

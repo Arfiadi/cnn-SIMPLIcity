@@ -152,7 +152,9 @@ def test_transfer_models_forward_shape():
         model = build_model(model_name=model_name, num_classes=10, pretrained=False)
         dummy_input = torch.randn(2, 3, 224, 224)
         output = model(dummy_input)
-        assert output.shape == (2, 10), f"Expected shape (2, 10) for {model_name}, got {output.shape}"
+        assert output.shape == (2, 10), (
+            f"Expected shape (2, 10) for {model_name}, got {output.shape}"
+        )
 
 
 def test_parameter_groups_differential_lr():
@@ -168,7 +170,9 @@ def test_parameter_groups_differential_lr():
 
     total_group_params = sum(p.numel() for g in groups for p in g["params"])
     total_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    assert total_group_params == total_model_params, "All trainable parameters must be accounted for"
+    assert total_group_params == total_model_params, (
+        "All trainable parameters must be accounted for"
+    )
 
 
 def test_freeze_backbone_batchnorm():

@@ -70,17 +70,21 @@ def get_parameter_groups(
 
     groups: list[dict[str, Any]] = []
     if backbone_params:
-        groups.append({
-            "params": backbone_params,
-            "lr": base_lr * backbone_lr_ratio,
-            "weight_decay": weight_decay,
-        })
+        groups.append(
+            {
+                "params": backbone_params,
+                "lr": base_lr * backbone_lr_ratio,
+                "weight_decay": weight_decay,
+            }
+        )
     if head_params:
-        groups.append({
-            "params": head_params,
-            "lr": base_lr,
-            "weight_decay": weight_decay,
-        })
+        groups.append(
+            {
+                "params": head_params,
+                "lr": base_lr,
+                "weight_decay": weight_decay,
+            }
+        )
 
     logger.debug(
         "Parameter groups: backbone=%d params (lr=%.6f), head=%d params (lr=%.6f)",
