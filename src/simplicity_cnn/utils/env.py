@@ -46,16 +46,40 @@ def get_default_data_dir() -> Path:
         Path("/content/Dataset"),
         Path("/content/data"),
         # Kaggle input paths
+        Path("/kaggle/input/simplicity"),
+        Path("/kaggle/input/simplicity/SIMPLIcity"),
+        Path("/kaggle/input/simplicity/SIMPLIcity Dataset"),
         Path("/kaggle/input/simplicity-dataset/SIMPLIcity"),
         Path("/kaggle/input/simplicity-dataset/SIMPLIcity Dataset"),
         Path("/kaggle/input/simplicity-dataset"),
-        Path("/kaggle/input/simplicity/SIMPLIcity Dataset"),
+        Path("/kaggle/input/datasets/arfiadi/simplicity"),
+        Path("/kaggle/input/datasets/arfiadi/simplicity/SIMPLIcity"),
     ]
 
     for path in candidate_paths:
         if path.exists() and (path / "train").exists():
             logger.info("Auto-detected dataset directory: %s", path)
             return path.resolve()
+
+    # Dynamic recursive scan under /kaggle/input if present
+    kaggle_input = Path("/kaggle/input")
+    if kaggle_input.exists():
+        for train_dir in kaggle_input.rglob("train"):
+            parent = train_dir.parent
+            if (parent / "validation").exists() or (parent / "test").exists():
+                logger.info("Auto-detected Kaggle dataset: %s", parent)
+                return parent.resolve()
+
+    # Dynamic recursive scan under /content if present
+    colab_content = Path("/content")
+    if colab_content.exists():
+        for train_dir in colab_content.rglob("train"):
+            if ".git" in train_dir.parts or ".venv" in train_dir.parts:
+                continue
+            parent = train_dir.parent
+            if (parent / "validation").exists() or (parent / "test").exists():
+                logger.info("Auto-detected Colab dataset: %s", parent)
+                return parent.resolve()
 
     # Dynamic recursive scan under repo_root / "Dataset" if present
     dataset_base = repo_root / "Dataset"
