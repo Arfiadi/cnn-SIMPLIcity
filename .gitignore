@@ -58,8 +58,8 @@ artifacts/
 *.zip
 
 # Datasets
-Dataset/
-data/
+/Dataset/
+/data/
 *.csv
 scratch_eda_summary.json
 
