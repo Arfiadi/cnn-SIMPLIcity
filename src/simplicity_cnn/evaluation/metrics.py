@@ -80,7 +80,7 @@ def evaluate_model(
         zero_division=0,
     )
 
-    logger.info("Classification Report:\n%s", report_text)
+    logger.debug("Classification Report:\n%s", report_text)
 
     # Save reports
     with open(out_dir / "classification_report.json", "w", encoding="utf-8") as f:
@@ -122,7 +122,7 @@ def evaluate_model(
     cm_path = out_dir / "confusion_matrix.png"
     fig.savefig(cm_path, dpi=200)
     plt.close(fig)
-    logger.info("Saved confusion matrix to: %s", cm_path)
+    logger.debug("Saved confusion matrix to: %s", cm_path)
 
     # 3. Misclassification error analysis
     misclassified: list[dict[str, Any]] = []

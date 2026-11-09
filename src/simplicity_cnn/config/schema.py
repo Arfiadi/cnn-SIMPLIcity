@@ -203,7 +203,7 @@ def load_config(
 
 
 def print_config_summary(yaml_path: str | Path) -> ExperimentConfig:
-    """Load, format, and display the complete experiment configuration across all 6 categories.
+    """Load and display a sleek, condensed experiment configuration summary card.
 
     Args:
         yaml_path: Path to YAML configuration file.
@@ -214,51 +214,26 @@ def print_config_summary(yaml_path: str | Path) -> ExperimentConfig:
     p = Path(yaml_path)
     cfg = load_config(p)
 
-    print("=" * 75)
-    print(f" EXPERIMENT CONFIGURATION: {cfg.experiment_name}")
-    print(f" Source File: {p.resolve() if p.exists() else p}")
-    print("=" * 75)
-    print("[1. COMPUTATIONAL ENVIRONMENT]")
-    print(f"  - Device Preference : {cfg.environment.device}")
-    print(f"  - Precision Mode    : {cfg.environment.precision}")
-    print(f"  - Random Seed       : {cfg.environment.seed}")
-    print(f"  - Deterministic     : {cfg.environment.deterministic_cudnn}")
-    print("\n[2. DATASET & AUGMENTATION]")
-    print(f"  - Dataset Name      : {cfg.data.dataset_name}")
-    print(f"  - Target Image Size : {cfg.data.img_size}")
-    print(f"  - Batch Size        : {cfg.data.batch_size}")
-    print(f"  - Num Workers       : {cfg.data.num_workers}")
-    print(f"  - Augmentation On   : {cfg.data.augmentation.enabled}")
-    print(f"  - Horiz. Flip Prob  : {cfg.data.augmentation.horizontal_flip_prob}")
-    print(f"  - Rotation Degrees  : {cfg.data.augmentation.rotation_degrees} deg")
-    print(f"  - Color Jitter (B,C,S): {cfg.data.augmentation.color_jitter}")
-    print(f"  - Random Erasing P  : {cfg.data.augmentation.random_erasing_prob}")
-    print(f"  - Crop Scale Range  : {cfg.data.augmentation.crop_scale}")
-    print("\n[3. MODEL ARCHITECTURE]")
-    print(f"  - Architecture Name : {cfg.model.name}")
-    print(f"  - Output Classes    : {cfg.model.num_classes}")
-    print(f"  - Activation        : {cfg.model.activation}")
-    print(f"  - Dropout Rate      : {cfg.model.dropout_rate}")
-    print(f"  - Use Batch Norm    : {cfg.model.use_batch_norm}")
-    print(f"  - Pretrained Weights: {cfg.model.pretrained}")
-    print(f"  - Freeze Backbone   : {cfg.model.freeze_backbone}")
-    print("\n[4. TRAINING & OPTIMIZATION]")
-    print(f"  - Epochs            : {cfg.training.epochs}")
-    print(f"  - Optimizer         : {cfg.training.optimizer}")
-    print(f"  - Learning Rate     : {cfg.training.lr} (min: {cfg.training.min_lr})")
-    print(f"  - Weight Decay      : {cfg.training.weight_decay}")
-    print(f"  - Scheduler         : {cfg.training.scheduler}")
-    print(f"  - Loss Function     : {cfg.training.loss_name}")
-    print(f"  - Label Smoothing   : {cfg.training.label_smoothing}")
-    print(f"  - Gradient Clipping : {cfg.training.gradient_clipping}")
-    print("\n[5. CONTROL & EARLY STOPPING]")
-    print(f"  - Early Stopping On : {cfg.control.early_stopping_enabled}")
-    print(f"  - Monitored Metric  : {cfg.control.monitor} (mode: {cfg.control.mode})")
-    print(f"  - Patience          : {cfg.control.patience} epochs (min_delta: {cfg.control.min_delta})")
-    print(f"  - Artifacts Output  : {cfg.control.output_dir}")
-    print("\n[6. EVALUATION METRICS]")
-    print(f"  - Target Metrics    : {cfg.evaluation.metrics}")
-    print(f"  - Confusion Matrix  : {cfg.evaluation.generate_confusion_matrix}")
-    print(f"  - Error Analysis Top-K: {cfg.evaluation.error_analysis_top_k}")
-    print("=" * 75)
+    width = 86
+    print("=" * width)
+    print(f" EXPERIMENT CONFIG CARD: {cfg.experiment_name} ({p.name})")
+    print("-" * width)
+    print(
+        f"  Model       : {cfg.model.name} (Classes: {cfg.model.num_classes}, Input: {cfg.data.img_size}, Pretrained: {cfg.model.pretrained})"
+    )
+    print(
+        f"  Training    : {cfg.training.epochs} epochs | Batch: {cfg.data.batch_size} | Opt: {cfg.training.optimizer} (LR: {cfg.training.lr}, WD: {cfg.training.weight_decay}) | Sched: {cfg.training.scheduler}"
+    )
+    print(
+        f"  Objective   : {cfg.training.loss_name} (label_smoothing: {cfg.training.label_smoothing}) | EarlyStop: {cfg.control.early_stopping_enabled} (patience: {cfg.control.patience}, monitor: {cfg.control.monitor} {cfg.control.mode})"
+    )
+    aug = cfg.data.augmentation
+    aug_desc = (
+        f"Flip: {aug.horizontal_flip_prob}, Rot: {aug.rotation_degrees}deg, Jitter: {aug.color_jitter}, Erase: {aug.random_erasing_prob}"
+        if aug.enabled
+        else "Disabled"
+    )
+    print(f"  Augment     : {aug_desc}")
+    print(f"  Artifacts   : {cfg.control.output_dir}")
+    print("=" * width)
     return cfg

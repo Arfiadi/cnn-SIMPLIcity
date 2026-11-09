@@ -102,33 +102,27 @@ def main() -> None:
     data_dir = Path(cfg.data.data_dir) if cfg.data.data_dir else get_default_data_dir()
     img_size: tuple[int, int] = (int(cfg.data.img_size[0]), int(cfg.data.img_size[1]))
 
-    # Log Hardware & Topology
+    # Log detailed diagnostics to file
     cuda_info = get_cuda_device_info()
-    logger.info("=== Environment & Hardware Diagnostics ===")
-    logger.info("  CUDA Available:  %s", cuda_info["available"])
-    logger.info("  GPU Count:       %d", cuda_info["count"])
-    logger.info("  GPU Devices:     %s", cuda_info["devices"])
-    logger.info("  Multi-GPU Mode:  %s (CLI Requested: %s)", cuda_info["is_multi_gpu"], args.multi_gpu)
-
-    logger.info("=== Experiment: %s ===", cfg.experiment_name)
-    logger.info("  Config Source:   %s", args.config)
-    logger.info("  Data Dir:        %s", data_dir)
-    logger.info("  Model Name:      %s", cfg.model.name)
-    logger.info("  Image Size:      %s", img_size)
-    logger.info("  Batch Size:      %d", cfg.data.batch_size)
-    logger.info("  Epochs:          %d", cfg.training.epochs)
-    logger.info("  LR:              %.6f", cfg.training.lr)
-    logger.info("  Backbone LR Rat: %s", args.backbone_lr_ratio)
-    logger.info("  Monitor:         %s (%s)", cfg.control.monitor, cfg.control.mode)
-    logger.info("  Label Smooth:    %.2f", cfg.training.label_smoothing)
-    logger.info("  Output Dir:      %s", output_dir)
+    logger.debug(
+        "Environment & Hardware: CUDA=%s, Count=%d, Devices=%s",
+        cuda_info["available"],
+        cuda_info["count"],
+        cuda_info["devices"],
+    )
+    logger.debug(
+        "Experiment: %s, Model: %s, Data: %s, Output: %s",
+        cfg.experiment_name,
+        cfg.model.name,
+        data_dir,
+        output_dir,
+    )
 
     # 1. Seed
     seed_everything(cfg.environment.seed)
 
     # 2. Device
     device = get_device(cfg.environment.device)
-    logger.info("Active compute device: %s", device)
 
     # 3. Data transforms & datasets
     train_transform = build_transforms(
@@ -204,7 +198,7 @@ def main() -> None:
             backbone_lr_ratio=backbone_ratio,
             weight_decay=cfg.training.weight_decay,
         )
-        logger.info("Configured differential learning rate (backbone ratio: %.3f)", backbone_ratio)
+        logger.debug("Configured differential learning rate (backbone ratio: %.3f)", backbone_ratio)
     else:
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         param_groups = [{"params": trainable_params}]
@@ -247,6 +241,8 @@ def main() -> None:
 
     # 7. Trainer execution
     use_amp = (cfg.environment.precision == "amp_fp16") and (device.type == "cuda")
+    trainer_multi_gpu = args.multi_gpu and (device.type == "cuda") and (cuda_info["count"] > 1)
+
     trainer = Trainer(
         model=model,
         train_loader=train_loader,
@@ -267,17 +263,36 @@ def main() -> None:
         multi_gpu=args.multi_gpu,
     )
 
+    # Print concise execution summary card
+    device_desc = (
+        f"{device} ({', '.join(cuda_info['devices'])})"
+        if cuda_info["available"]
+        else str(device)
+    )
+    lr_desc = f"{cfg.training.lr:.2e}"
+    if backbone_ratio is not None and 0.0 < backbone_ratio < 1.0:
+        lr_desc += f" (backbone: {cfg.training.lr * backbone_ratio:.2e})"
+
+    banner_width = 91
+    print("=" * banner_width)
+    print(f" SIMPLIcity Experiment : {cfg.experiment_name}")
+    print(f" Architecture          : {cfg.model.name} (Pretrained: {cfg.model.pretrained})")
+    print(f" Compute Device        : {device_desc} | Multi-GPU: {trainer_multi_gpu} | AMP: {use_amp}")
+    print(f" Data Configuration    : Batch: {cfg.data.batch_size} | Size: {img_size[0]}x{img_size[1]} | Workers: {num_workers}")
+    print(f" Optimization          : {cfg.training.epochs} epochs | Opt: {cfg.training.optimizer} (LR: {lr_desc}) | Loss: CE (Smooth: {cfg.training.label_smoothing})")
+    print("=" * banner_width)
+
     train_results = trainer.fit()
 
     # 8. Final evaluation on Test Set
     eval_model = trainer.raw_model
     best_checkpoint = output_dir / "best_model.pt"
     if best_checkpoint.exists():
-        logger.info("Loading best checkpoint for test set evaluation: %s", best_checkpoint)
+        logger.debug("Loading best checkpoint for test set evaluation: %s", best_checkpoint)
         ckpt = torch.load(best_checkpoint, map_location=device, weights_only=True)
         eval_model.load_state_dict(ckpt["model_state_dict"])
 
-    logger.info("Running evaluation on test split (%d samples)...", len(test_ds))
+    logger.debug("Running evaluation on test split (%d samples)...", len(test_ds))
     eval_results = evaluate_model(
         model=eval_model,
         test_loader=test_loader,
@@ -286,18 +301,16 @@ def main() -> None:
         output_dir=output_dir / "evaluation",
     )
 
-    print("\n" + "=" * 65)
-    print("SIMPLIcity CNN Experiment Complete!")
-    print("=" * 65)
-    print(f"Experiment Name:      {cfg.experiment_name}")
-    print(f"Model Architecture:   {cfg.model.name}")
-    print(
-        f"Best {cfg.control.monitor}:   {train_results['best_score']:.4f} (Epoch {train_results['best_epoch']})"
-    )
-    print(f"Test Set Accuracy:    {eval_results['accuracy'] * 100:.2f}%")
-    print(f"Test Set Macro F1:    {eval_results['macro_f1']:.4f}")
-    print(f"Output Artifacts:     {output_dir.resolve()}")
-    print("=" * 65)
+    print("\n" + "=" * banner_width)
+    print(" SIMPLIcity CNN Experiment Complete!")
+    print("=" * banner_width)
+    print(f" Experiment Name    : {cfg.experiment_name}")
+    print(f" Model Architecture : {cfg.model.name}")
+    print(f" Best {cfg.control.monitor:<13} : {train_results['best_score']:.4f} (Epoch {train_results['best_epoch']})")
+    print(f" Test Accuracy      : {eval_results['accuracy'] * 100:.2f}%")
+    print(f" Test Macro F1      : {eval_results['macro_f1']:.4f}")
+    print(f" Artifacts Saved To : {output_dir.resolve()}")
+    print("=" * banner_width)
 
 
 if __name__ == "__main__":

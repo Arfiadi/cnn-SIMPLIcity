@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from simplicity_cnn.training.tracker import TrainingTracker
 
@@ -89,10 +88,7 @@ class Trainer:
         correct = 0
         total = 0
 
-        pbar = tqdm(
-            self.train_loader, desc=f"Epoch {epoch:02d}/{self.num_epochs:02d} [Train]", leave=False
-        )
-        for images, targets, _ in pbar:
+        for images, targets, _ in self.train_loader:
             images = images.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
@@ -116,10 +112,6 @@ class Trainer:
             _, preds = outputs.max(1)
             correct += preds.eq(targets).sum().item()
             total += batch_size
-
-            pbar.set_postfix(
-                {"loss": f"{loss.item():.4f}", "acc": f"{(correct / total) * 100:.2f}%"}
-            )
 
         epoch_loss = running_loss / max(total, 1)
         epoch_acc = (correct / max(total, 1)) * 100.0
@@ -163,7 +155,7 @@ class Trainer:
 
     def fit(self) -> dict[str, Any]:
         """Run complete training cycle with validation, early stopping, and checkpointing."""
-        logger.info(
+        logger.debug(
             "Starting training for %d epochs on device: %s (Multi-GPU: %s, AMP: %s, Monitor: %s %s)",
             self.num_epochs,
             self.device,
@@ -172,6 +164,12 @@ class Trainer:
             self.monitor,
             self.mode,
         )
+
+        table_header = f" {'Epoch':^7} | {'Train Loss':^10} | {'Train Acc':^9} | {'Val Loss':^10} | {'Val Acc':^9} | {'Val F1':^8} | {'LR':^10} | {'Status':^6}"
+        table_width = len(table_header)
+        print("=" * table_width)
+        print(table_header)
+        print("-" * table_width)
 
         epochs_no_improve = 0
 
@@ -197,18 +195,6 @@ class Trainer:
                 lr=current_lr,
             )
 
-            logger.info(
-                "Epoch %02d/%02d | Train Loss: %.4f, Acc: %.2f%% | Val Loss: %.4f, Acc: %.2f%%, Macro F1: %.4f | LR: %.6f",
-                epoch,
-                self.num_epochs,
-                train_loss,
-                train_acc,
-                val_loss,
-                val_acc,
-                val_macro_f1,
-                current_lr,
-            )
-
             # Determine metric for early stopping and checkpointing
             if self.monitor == "val_macro_f1":
                 current_score = val_macro_f1
@@ -225,6 +211,31 @@ class Trainer:
                 if current_score < (self.best_score - self.min_delta):
                     improved = True
 
+            status = "*Best*" if improved else ""
+            print(
+                f" {epoch:>3d}/{self.num_epochs:<3d} | "
+                f"{train_loss:^10.4f} | "
+                f"{train_acc:>6.2f}%  | "
+                f"{val_loss:^10.4f} | "
+                f"{val_acc:>6.2f}%  | "
+                f"{val_macro_f1:^8.4f} | "
+                f"{current_lr:^10.2e} | "
+                f"{status:^6}"
+            )
+
+            logger.debug(
+                "Epoch %02d/%02d | Train Loss: %.4f, Acc: %.2f%% | Val Loss: %.4f, Acc: %.2f%%, Macro F1: %.4f | LR: %.6f | Best: %s",
+                epoch,
+                self.num_epochs,
+                train_loss,
+                train_acc,
+                val_loss,
+                val_acc,
+                val_macro_f1,
+                current_lr,
+                improved,
+            )
+
             if improved:
                 self.best_score = current_score
                 self.best_epoch = epoch
@@ -235,6 +246,10 @@ class Trainer:
 
             # Early stopping check
             if epochs_no_improve >= self.patience:
+                print("-" * table_width)
+                print(
+                    f" [Early Stopping] Triggered at epoch {epoch} (patience {self.patience} reached without improvement in {self.monitor}). Best {self.monitor}: {self.best_score:.4f} at epoch {self.best_epoch}"
+                )
                 logger.info(
                     "Early stopping triggered after %d epochs without improvement in %s. Best %s: %.4f at epoch %d",
                     self.patience,
@@ -244,6 +259,8 @@ class Trainer:
                     self.best_epoch,
                 )
                 break
+
+        print("=" * table_width)
 
         # Save final model state and export plots
         self._save_checkpoint("last_model.pt", epoch, val_loss, val_acc, val_macro_f1)
@@ -275,7 +292,7 @@ class Trainer:
             "monitor_metric": self.monitor,
         }
         torch.save(checkpoint_data, checkpoint_path)
-        logger.info(
+        logger.debug(
             "Saved checkpoint: %s (Val Loss: %.4f, Acc: %.2f%%, Macro F1: %.4f)",
             checkpoint_path,
             val_loss,

@@ -51,7 +51,7 @@ class TrainingTracker:
         file_path = self.output_dir / filename
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(self.history, f, indent=2)
-        logger.info("Saved training history to %s", file_path)
+        logger.debug("Saved training history to %s", file_path)
         return file_path
 
     def plot_curves(self, prefix: str = "") -> dict[str, Path]:
@@ -71,22 +71,12 @@ class TrainingTracker:
         # 1. Loss curve
         fig_loss, ax_loss = plt.subplots(figsize=(8, 5))
         ax_loss.plot(
-            epochs,
-            self.history["train_loss"],
-            label="Train Loss",
-            color="#1f77b4",
-            linewidth=2,
+            epochs, self.history["train_loss"], label="Train Loss", color="#1f77b4", linewidth=2
         )
         ax_loss.plot(
-            epochs,
-            self.history["val_loss"],
-            label="Validation Loss",
-            color="#ff7f0e",
-            linewidth=2,
+            epochs, self.history["val_loss"], label="Validation Loss", color="#ff7f0e", linewidth=2
         )
-        ax_loss.set_title(
-            "Gradient Descent: Cross-Entropy Loss Curve", fontsize=13, fontweight="bold"
-        )
+        ax_loss.set_title("Training & Validation Loss Curve", fontsize=13, fontweight="bold")
         ax_loss.set_xlabel("Epoch", fontsize=11)
         ax_loss.set_ylabel("Loss", fontsize=11)
         ax_loss.grid(True, linestyle="--", alpha=0.6)
@@ -160,5 +150,5 @@ class TrainingTracker:
         plt.close(fig_combo)
         saved_plots["combined"] = combo_path
 
-        logger.info("Saved curve plots to: %s", self.output_dir)
+        logger.debug("Saved curve plots to: %s", self.output_dir)
         return saved_plots
