@@ -74,7 +74,6 @@ class TrainingTracker:
             epochs,
             self.history["train_loss"],
             label="Train Loss",
-            marker="o",
             color="#1f77b4",
             linewidth=2,
         )
@@ -82,7 +81,6 @@ class TrainingTracker:
             epochs,
             self.history["val_loss"],
             label="Validation Loss",
-            marker="s",
             color="#ff7f0e",
             linewidth=2,
         )
@@ -105,7 +103,6 @@ class TrainingTracker:
             epochs,
             self.history["train_acc"],
             label="Train Accuracy",
-            marker="o",
             color="#2ca02c",
             linewidth=2,
         )
@@ -113,7 +110,6 @@ class TrainingTracker:
             epochs,
             self.history["val_acc"],
             label="Validation Accuracy",
-            marker="s",
             color="#d62728",
             linewidth=2,
         )
@@ -132,21 +128,21 @@ class TrainingTracker:
         fig_combo, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         ax1.plot(
-            epochs, self.history["train_loss"], label="Train Loss", marker="o", color="#1f77b4"
+            epochs, self.history["train_loss"], label="Train Loss", color="#1f77b4", linewidth=2.2
         )
-        ax1.plot(epochs, self.history["val_loss"], label="Val Loss", marker="s", color="#ff7f0e")
+        ax1.plot(epochs, self.history["val_loss"], label="Val Loss", color="#ff7f0e", linewidth=2.2)
         ax1.set_title("Loss Convergence", fontsize=12, fontweight="bold")
         ax1.set_xlabel("Epoch")
         ax1.set_ylabel("Loss")
         ax1.grid(True, linestyle="--", alpha=0.5)
         ax1.legend()
 
-        ax2.plot(epochs, self.history["train_acc"], label="Train Acc", marker="o", color="#2ca02c")
-        ax2.plot(epochs, self.history["val_acc"], label="Val Acc", marker="s", color="#d62728")
+        ax2.plot(epochs, self.history["train_acc"], label="Train Acc", color="#2ca02c", linewidth=2.2)
+        ax2.plot(epochs, self.history["val_acc"], label="Val Acc", color="#d62728", linewidth=2.2)
         if any(v > 0 for v in self.history["val_macro_f1"]):
             f1_pct = [v * 100 for v in self.history["val_macro_f1"]]
             ax2.plot(
-                epochs, f1_pct, label="Val Macro F1 (%)", marker="^", color="#9467bd", linestyle=":"
+                epochs, f1_pct, label="Val Macro F1 (%)", color="#9467bd", linestyle="--", linewidth=2.0
             )
 
         ax2.set_title("Accuracy & F1 Progression", fontsize=12, fontweight="bold")
