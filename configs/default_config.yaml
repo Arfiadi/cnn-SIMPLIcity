@@ -1,0 +1,26 @@
+data:
+  data_dir: null            # Null triggers auto-detection across Local/Colab/Kaggle
+  img_size: [128, 128]      # Input resolution (128x128 matching assignment slide 6)
+  batch_size: 32
+  num_workers: 2            # Adjusted to 0 on Windows if multiprocessing issue occurs
+
+model:
+  name: "baseline_custom"   # Options: baseline_custom, custom_scratch, resnet18, mobilenet_v3_small
+  num_classes: 10
+  activation: "relu"        # For baseline_custom: relu or sigmoid
+  pretrained: true          # For transfer models
+  freeze_backbone: false    # For transfer models
+
+training:
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  optimizer: "adamw"        # Options: adamw, adam, sgd
+  scheduler: "cosine"       # Options: cosine, step, plateau, none
+  patience: 10              # Early stopping patience
+  grad_clip: 1.0
+  seed: 42
+  device: "auto"            # Options: auto, cuda, cpu
+
+output:
+  dir: "outputs/run_default"
