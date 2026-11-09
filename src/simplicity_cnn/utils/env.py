@@ -25,72 +25,111 @@ def detect_environment() -> str:
     return "local"
 
 
+def _find_dataset_root(search_dir: Path | str) -> Path | None:
+    """Recursively search for directory containing 'train' and 'validation'/'test' subfolders.
+
+    Uses os.walk(followlinks=True) to reliably follow symlinks on Kaggle and handles
+    case-insensitive directory naming.
+    """
+    base = Path(search_dir)
+    if not base.exists():
+        return None
+    try:
+        for root, dirs, _ in os.walk(base, followlinks=True):
+            parts = Path(root).parts
+            if any(p.startswith(".") or p in {"__pycache__", "site-packages", "node_modules"} for p in parts):
+                continue
+            dirs_lower = {d.lower(): d for d in dirs}
+            if "train" in dirs_lower:
+                if any(k in dirs_lower for k in ["validation", "val", "valid", "test"]):
+                    return Path(root).resolve()
+    except Exception as err:
+        logger.debug("Error while scanning %s: %s", search_dir, err)
+    return None
+
+
 def get_default_data_dir() -> Path:
     """Locate the SIMPLIcity dataset directory across local, Colab, or Kaggle.
+
+    Checks:
+      1. Environment variables 'DATA_DIR' or 'SIMPLICITY_DATA_DIR'.
+      2. Dynamic os.walk scan of '/kaggle/input' (follows Kaggle symlinks and casing).
+      3. Candidate path list across typical local, Colab, and Kaggle mount paths.
+      4. Dynamic os.walk scan of '/content' (Google Colab).
+      5. Dynamic os.walk scan under repository 'Dataset' folder and current working directory.
 
     Returns:
         Path: Resolved absolute path to the dataset directory containing train/val/test.
     """
+    # 1. Environment variable check
+    env_dir = os.environ.get("DATA_DIR") or os.environ.get("SIMPLICITY_DATA_DIR")
+    if env_dir:
+        p = Path(env_dir).resolve()
+        if p.exists() and any((p / sub).exists() for sub in ["train", "Train"]):
+            logger.info("Using dataset directory from environment variable: %s", p)
+            return p
+
+    # 2. Dynamic scan under /kaggle/input (handles Kaggle symlinks, any dataset name or case)
+    kaggle_input = Path("/kaggle/input")
+    if kaggle_input.exists():
+        detected_kaggle = _find_dataset_root(kaggle_input)
+        if detected_kaggle is not None:
+            logger.info("Auto-detected Kaggle dataset: %s", detected_kaggle)
+            return detected_kaggle
+
     repo_root = Path(__file__).resolve().parents[3]
 
+    # 3. Known candidate paths
     candidate_paths: list[Path] = [
-        # Local workspace relative paths
+        # Local workspace paths
         repo_root / "Dataset" / "SIMPLIcity",
         repo_root / "Dataset" / "SIMPLIcity" / "SIMPLIcity Dataset",
         repo_root / "Dataset" / "SIMPLIcity Dataset",
         repo_root / "Dataset",
+        # Kaggle input known paths (case-sensitive variants)
+        Path("/kaggle/input/SIMPLIcity"),
+        Path("/kaggle/input/simplicity"),
+        Path("/kaggle/input/simplicity-dataset"),
+        Path("/kaggle/input/simplicity/SIMPLIcity"),
+        Path("/kaggle/input/simplicity-dataset/SIMPLIcity"),
+        Path("/kaggle/input/datasets/arfiadi/simplicity"),
         # Colab typical paths
         Path("/content/Dataset/SIMPLIcity"),
-        Path("/content/Dataset/SIMPLIcity/SIMPLIcity Dataset"),
-        Path("/content/Dataset/SIMPLIcity Dataset"),
         Path("/content/Dataset"),
         Path("/content/data"),
-        # Kaggle input paths
-        Path("/kaggle/input/simplicity"),
-        Path("/kaggle/input/simplicity/SIMPLIcity"),
-        Path("/kaggle/input/simplicity/SIMPLIcity Dataset"),
-        Path("/kaggle/input/simplicity-dataset/SIMPLIcity"),
-        Path("/kaggle/input/simplicity-dataset/SIMPLIcity Dataset"),
-        Path("/kaggle/input/simplicity-dataset"),
-        Path("/kaggle/input/datasets/arfiadi/simplicity"),
-        Path("/kaggle/input/datasets/arfiadi/simplicity/SIMPLIcity"),
+        # Current working directory relative paths
+        Path.cwd() / "Dataset" / "SIMPLIcity",
+        Path.cwd() / "Dataset",
     ]
 
     for path in candidate_paths:
-        if path.exists() and (path / "train").exists():
+        if path.exists() and any((path / sub).exists() for sub in ["train", "Train"]):
             logger.info("Auto-detected dataset directory: %s", path)
             return path.resolve()
 
-    # Dynamic recursive scan under /kaggle/input if present
-    kaggle_input = Path("/kaggle/input")
-    if kaggle_input.exists():
-        for train_dir in kaggle_input.rglob("train"):
-            parent = train_dir.parent
-            if (parent / "validation").exists() or (parent / "test").exists():
-                logger.info("Auto-detected Kaggle dataset: %s", parent)
-                return parent.resolve()
-
-    # Dynamic recursive scan under /content if present
-    colab_content = Path("/content")
-    if colab_content.exists():
-        for train_dir in colab_content.rglob("train"):
-            if ".git" in train_dir.parts or ".venv" in train_dir.parts:
-                continue
-            parent = train_dir.parent
-            if (parent / "validation").exists() or (parent / "test").exists():
-                logger.info("Auto-detected Colab dataset: %s", parent)
-                return parent.resolve()
-
-    # Dynamic recursive scan under repo_root / "Dataset" if present
+    # 4. Dynamic scan under repository 'Dataset' directory
     dataset_base = repo_root / "Dataset"
     if dataset_base.exists():
-        for train_dir in dataset_base.rglob("train"):
-            parent = train_dir.parent
-            if (parent / "validation").exists() or (parent / "test").exists():
-                logger.info("Auto-detected dataset via recursive scan: %s", parent)
-                return parent.resolve()
+        detected_local = _find_dataset_root(dataset_base)
+        if detected_local is not None:
+            logger.info("Auto-detected local dataset: %s", detected_local)
+            return detected_local
 
-    # Fallback to local default even if not yet verified
+    # 5. Dynamic scan under Colab /content
+    colab_content = Path("/content")
+    if colab_content.exists():
+        detected_colab = _find_dataset_root(colab_content)
+        if detected_colab is not None:
+            logger.info("Auto-detected Colab dataset: %s", detected_colab)
+            return detected_colab
+
+    # 6. Dynamic scan under current working directory
+    detected_cwd = _find_dataset_root(Path.cwd())
+    if detected_cwd is not None:
+        logger.info("Auto-detected dataset in working directory: %s", detected_cwd)
+        return detected_cwd
+
+    # Fallback default
     default_fallback = repo_root / "Dataset" / "SIMPLIcity"
     logger.warning(
         "Could not auto-detect dataset with 'train/' subfolder. Using default: %s", default_fallback
