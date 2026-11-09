@@ -88,7 +88,7 @@ def main() -> None:
     logger = setup_logger("simplicity_cnn", log_file=output_dir / "train.log")
 
     data_dir = Path(cfg.data.data_dir) if cfg.data.data_dir else get_default_data_dir()
-    img_size = tuple(cfg.data.img_size)
+    img_size: tuple[int, int] = (int(cfg.data.img_size[0]), int(cfg.data.img_size[1]))
 
     logger.info("=== Experiment: %s ===", cfg.experiment_name)
     logger.info("  Config Source: %s", args.config)
@@ -176,6 +176,7 @@ def main() -> None:
     trainable_params = [p for p in model.parameters() if p.requires_grad]
 
     opt_name = cfg.training.optimizer.lower()
+    optimizer: torch.optim.Optimizer
     if opt_name == "adamw":
         optimizer = torch.optim.AdamW(
             trainable_params, lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
@@ -195,7 +196,7 @@ def main() -> None:
         raise ValueError(f"Unsupported optimizer: {opt_name}")
 
     # 6. Scheduler
-    scheduler = None
+    scheduler: Any = None
     sched_name = cfg.training.scheduler.lower()
     if sched_name == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -237,7 +238,7 @@ def main() -> None:
     best_checkpoint = output_dir / "best_model.pt"
     if best_checkpoint.exists():
         logger.info("Loading best checkpoint for test set evaluation: %s", best_checkpoint)
-        ckpt = torch.load(best_checkpoint, map_location=device, weights_only=False)
+        ckpt = torch.load(best_checkpoint, map_location=device, weights_only=True)
         model.load_state_dict(ckpt["model_state_dict"])
 
     logger.info("Running evaluation on test split (%d samples)...", len(test_ds))

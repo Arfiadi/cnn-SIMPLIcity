@@ -10,6 +10,7 @@ from simplicity_cnn.data.dataset import CLASS_NAMES, SIMPLIcityDataset
 from simplicity_cnn.data.transforms import build_transforms
 from simplicity_cnn.models.baseline_cnn import SimplicityBaselineCNN
 from simplicity_cnn.models.custom_scratch import SimplicityCustomCNN
+from simplicity_cnn.models.factory import build_model
 from simplicity_cnn.utils.env import detect_environment, get_default_data_dir, get_device
 from simplicity_cnn.utils.seed import seed_everything
 
@@ -100,3 +101,37 @@ def test_dataset_loading_if_exists():
     assert image.shape == (3, 128, 128)
     assert 0 <= label < len(CLASS_NAMES)
     assert isinstance(fname, str)
+
+
+def test_dataset_split_disjointness():
+    """Verify strictly disjoint partitions: Train ∩ Val ∩ Test = ∅ to guarantee zero leakage."""
+    data_dir = get_default_data_dir()
+    if not (data_dir / "train").exists():
+        pytest.skip(f"Dataset train folder not present at {data_dir}")
+
+    transform = build_transforms(img_size=(128, 128), augment=False)
+    train_ds = SIMPLIcityDataset(data_dir, split="train", transform=transform)
+    val_ds = SIMPLIcityDataset(data_dir, split="validation", transform=transform)
+    test_ds = SIMPLIcityDataset(data_dir, split="test", transform=transform)
+
+    train_files = {p.name for p, _ in train_ds.samples}
+    val_files = {p.name for p, _ in val_ds.samples}
+    test_files = {p.name for p, _ in test_ds.samples}
+
+    assert len(train_files) == 500, f"Expected 500 train images, got {len(train_files)}"
+    assert len(val_files) == 300, f"Expected 300 val images, got {len(val_files)}"
+    assert len(test_files) == 200, f"Expected 200 test images, got {len(test_files)}"
+
+    assert train_files.isdisjoint(val_files), "Train and validation splits must be disjoint!"
+    assert train_files.isdisjoint(test_files), "Train and test splits must be disjoint!"
+    assert val_files.isdisjoint(test_files), "Validation and test splits must be disjoint!"
+
+
+def test_transfer_models_forward_shape():
+    """Verify transfer learning backbones initialize and output correct shape without pretrained download."""
+    for model_name in ["resnet18", "mobilenet_v3_small"]:
+        model = build_model(model_name=model_name, num_classes=10, pretrained=False)
+        dummy_input = torch.randn(2, 3, 128, 128)
+        output = model(dummy_input)
+        assert output.shape == (2, 10), f"Expected shape (2, 10) for {model_name}, got {output.shape}"
+
