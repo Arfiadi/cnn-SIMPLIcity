@@ -10,6 +10,7 @@ from simplicity_cnn.config.schema import (
     ModelConfig,
     TrainingConfig,
     load_config,
+    print_config_summary,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ModelConfig",
     "TrainingConfig",
     "load_config",
+    "print_config_summary",
 ]
