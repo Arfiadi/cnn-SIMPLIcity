@@ -24,12 +24,16 @@ class LetterboxPad(nn.Module):
 
     This prevents geometric distortion and eliminates the cutting off of tall objects
     (e.g. building towers/spires) or wide landscapes (e.g. beaches/mountains).
+
+    Default padding fill uses ImageNet RGB mean in uint8 (124, 116, 104). Under standard
+    ImageNet Z-score normalization, this maps exactly to ~0.0, avoiding artificial high-contrast
+    edge artifacts at padding borders.
     """
 
     def __init__(
         self,
         target_size: int | tuple[int, int] = (240, 240),
-        fill: int = 0,
+        fill: int | tuple[int, int, int] = (124, 116, 104),
     ) -> None:
         super().__init__()
         self.target_size = (
@@ -59,7 +63,29 @@ class LetterboxPad(nn.Module):
         pad_bottom = pad_h - pad_top
         pad_left = pad_w // 2
         pad_right = pad_w - pad_left
-        return TF.pad(resized, [pad_left, pad_top, pad_right, pad_bottom], fill=self.fill)
+
+        if isinstance(img, Image.Image):
+            fill_val = (
+                tuple(self.fill)
+                if isinstance(self.fill, (tuple, list))
+                else (self.fill, self.fill, self.fill)
+            )
+            return TF.pad(resized, [pad_left, pad_top, pad_right, pad_bottom], fill=fill_val)
+        elif isinstance(img, torch.Tensor):
+            padded = TF.pad(resized, [pad_left, pad_top, pad_right, pad_bottom], fill=0)
+            if isinstance(self.fill, (tuple, list)) and len(self.fill) == 3:
+                fill_floats = [f / 255.0 if f > 1.0 else float(f) for f in self.fill]
+                for c in range(min(3, padded.shape[-3])):
+                    if pad_top > 0:
+                        padded[..., c, :pad_top, :] = fill_floats[c]
+                    if pad_bottom > 0:
+                        padded[..., c, target_h - pad_bottom :, :] = fill_floats[c]
+                    if pad_left > 0:
+                        padded[..., c, :, :pad_left] = fill_floats[c]
+                    if pad_right > 0:
+                        padded[..., c, :, target_w - pad_right :] = fill_floats[c]
+            return padded
+        return resized
 
 
 def build_transforms(
@@ -102,7 +128,7 @@ def build_transforms(
 
             # Geometrical: Letterbox vs Crop vs Resize
             if preserve_aspect_ratio:
-                ops.append(LetterboxPad(target_size=target_size, fill=0))
+                ops.append(LetterboxPad(target_size=target_size))
             elif crop_scale and crop_scale[0] < 1.0:
                 ops.append(v2.RandomResizedCrop(target_size, scale=tuple(crop_scale), antialias=True))
             else:
@@ -135,7 +161,7 @@ def build_transforms(
 
         # Fallback for v1
         if preserve_aspect_ratio:
-            ops.append(LetterboxPad(target_size=target_size, fill=0))
+            ops.append(LetterboxPad(target_size=target_size))
         elif crop_scale and crop_scale[0] < 1.0:
             ops.append(v2.RandomResizedCrop(target_size, scale=tuple(crop_scale)))
         else:
@@ -170,14 +196,14 @@ def build_transforms(
             return v2.Compose(
                 [
                     v2.ToImage(),
-                    LetterboxPad(target_size=target_size, fill=0),
+                    LetterboxPad(target_size=target_size),
                     v2.ToDtype(torch.float32, scale=True),
                     v2.Normalize(mean=mean_tuple, std=std_tuple),
                 ]
             )
         return v2.Compose(
             [
-                LetterboxPad(target_size=target_size, fill=0),
+                LetterboxPad(target_size=target_size),
                 v2.ToTensor(),
                 v2.Normalize(mean=mean_tuple, std=std_tuple),
             ]

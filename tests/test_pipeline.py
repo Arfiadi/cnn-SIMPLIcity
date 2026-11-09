@@ -196,27 +196,33 @@ def test_dataparallel_checkpoint_unwrap():
 
 
 def test_letterbox_pad_transforms():
-    """Verify LetterboxPad preserves aspect ratio and outputs exact (3, 240, 240)."""
+    """Verify LetterboxPad preserves aspect ratio and fills padding with ImageNet mean."""
     from PIL import Image
 
     from simplicity_cnn.data.transforms import LetterboxPad
 
-    padder = LetterboxPad(target_size=(240, 240), fill=0)
+    padder = LetterboxPad(target_size=(240, 240))
 
     # 1. Landscape tensor [3, 256, 384]
     t_land = torch.randn(3, 256, 384)
     out_land = padder(t_land)
     assert out_land.shape == (3, 240, 240), f"Expected (3, 240, 240), got {out_land.shape}"
+    # Verify pad area (top row) has ImageNet mean (~0.486, ~0.455, ~0.408)
+    assert abs(out_land[0, 0, 0].item() - (124 / 255.0)) < 1e-4
 
     # 2. Portrait tensor [3, 384, 256]
     t_port = torch.randn(3, 384, 256)
     out_port = padder(t_port)
     assert out_port.shape == (3, 240, 240), f"Expected (3, 240, 240), got {out_port.shape}"
+    # Verify pad area (left column) has ImageNet mean
+    assert abs(out_port[0, 0, 0].item() - (124 / 255.0)) < 1e-4
 
     # 3. PIL image
-    img = Image.new("RGB", (384, 256))
+    img = Image.new("RGB", (384, 256), color=(255, 0, 0))
     out_pil = padder(img)
     assert out_pil.size == (240, 240), f"Expected (240, 240), got {out_pil.size}"
+    # Check top-left pixel in padding
+    assert out_pil.getpixel((0, 0)) == (124, 116, 104)
 
 
 def test_efficientnet_enhanced_head():
