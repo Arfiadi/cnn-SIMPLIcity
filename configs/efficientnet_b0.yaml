@@ -61,4 +61,4 @@ evaluation:
   metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
   generate_confusion_matrix: true
   error_analysis_top_k: 10
-  use_tta: true                          # Test-Time Augmentation (Horizontal Flip Ensemble)
+  use_tta: false                         # Single-pass deterministic evaluation (no post-processing tricks)
