@@ -40,7 +40,7 @@ def build_model(
         input_size: Input spatial dimensions (H, W).
         pretrained: For transfer models, load pretrained ImageNet weights.
         freeze_backbone: For transfer models, freeze backbone weights.
-        **kwargs: Additional model parameters (e.g. head_type).
+        **kwargs: Additional model parameters (e.g. head_type, dropout_rate).
 
     Returns:
         nn.Module: Instantiated PyTorch model.
@@ -83,6 +83,7 @@ def build_model(
             pretrained=pretrained,
             freeze_backbone=freeze_backbone,
             head_type=kwargs.get("head_type", "standard"),
+            dropout_rate=kwargs.get("dropout_rate", 0.25),
         )
 
     raise ValueError(f"Unknown model name: '{model_name}'. Available: {AVAILABLE_MODELS}")

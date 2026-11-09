@@ -102,6 +102,7 @@ def build_transfer_model(
     pretrained: bool = True,
     freeze_backbone: bool = False,
     head_type: str = "standard",
+    dropout_rate: float = 0.25,
 ) -> nn.Module:
     """Build a transfer learning model with modified classification head.
 
@@ -110,7 +111,8 @@ def build_transfer_model(
         num_classes: Target number of classes (default 10).
         pretrained: Whether to load ImageNet pre-trained weights.
         freeze_backbone: Whether to freeze feature extractor layers.
-        head_type: Classification head architecture ("standard" or "enhanced").
+        head_type: Classification head architecture ("standard", "linear", or "enhanced").
+        dropout_rate: Dropout probability for classification head (default 0.25).
 
     Returns:
         nn.Module: Configured PyTorch model ready for fine-tuning.
@@ -129,7 +131,7 @@ def build_transfer_model(
         if head_type.lower() == "enhanced":
             model.fc = nn.Sequential(
                 nn.BatchNorm1d(in_features),
-                nn.Dropout(p=0.3),
+                nn.Dropout(p=dropout_rate),
                 nn.Linear(in_features, 256),
                 nn.ReLU(inplace=True),
                 nn.BatchNorm1d(256),
@@ -137,7 +139,10 @@ def build_transfer_model(
                 nn.Linear(256, num_classes),
             )
         else:
-            model.fc = nn.Linear(in_features, num_classes)
+            model.fc = nn.Sequential(
+                nn.Dropout(p=dropout_rate),
+                nn.Linear(in_features, num_classes),
+            )
         return model
 
     if name == "resnet34":
@@ -151,7 +156,7 @@ def build_transfer_model(
         if head_type.lower() == "enhanced":
             model.fc = nn.Sequential(
                 nn.BatchNorm1d(in_features),
-                nn.Dropout(p=0.3),
+                nn.Dropout(p=dropout_rate),
                 nn.Linear(in_features, 256),
                 nn.ReLU(inplace=True),
                 nn.BatchNorm1d(256),
@@ -159,7 +164,10 @@ def build_transfer_model(
                 nn.Linear(256, num_classes),
             )
         else:
-            model.fc = nn.Linear(in_features, num_classes)
+            model.fc = nn.Sequential(
+                nn.Dropout(p=dropout_rate),
+                nn.Linear(in_features, num_classes),
+            )
         return model
 
     # --- MobileNetV3 Family ---
@@ -171,6 +179,7 @@ def build_transfer_model(
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
         in_features = model.classifier[3].in_features
+        model.classifier[2] = nn.Dropout(p=dropout_rate)
         model.classifier[3] = nn.Linear(in_features, num_classes)
         return model
 
@@ -182,6 +191,7 @@ def build_transfer_model(
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
         in_features = model.classifier[3].in_features
+        model.classifier[2] = nn.Dropout(p=dropout_rate)
         model.classifier[3] = nn.Linear(in_features, num_classes)
         return model
 
@@ -197,7 +207,7 @@ def build_transfer_model(
         if head_type.lower() == "enhanced":
             model.classifier = nn.Sequential(
                 nn.BatchNorm1d(in_features),
-                nn.Dropout(p=0.3),
+                nn.Dropout(p=dropout_rate),
                 nn.Linear(in_features, 256),
                 nn.SiLU(inplace=True),
                 nn.BatchNorm1d(256),
@@ -205,7 +215,10 @@ def build_transfer_model(
                 nn.Linear(256, num_classes),
             )
         else:
-            model.classifier[1] = nn.Linear(in_features, num_classes)
+            model.classifier = nn.Sequential(
+                nn.Dropout(p=dropout_rate, inplace=True),
+                nn.Linear(in_features, num_classes),
+            )
         return model
 
     # --- ConvNeXt-Tiny ---

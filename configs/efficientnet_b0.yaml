@@ -1,4 +1,4 @@
-experiment_name: "efficientnet_b0_enhanced_240"
+experiment_name: "efficientnet_b0_v3_final"
 
 environment:
   device: "auto"
@@ -9,8 +9,8 @@ environment:
 data:
   dataset_name: "SIMPLIcity"
   data_dir: null
-  img_size: [240, 240]                   # Native compound-scaled resolution for EfficientNet-B0
-  preserve_aspect_ratio: true            # Letterbox padding preserving 100% of building/mountain geometry
+  img_size: [224, 224]                   # Canonical ImageNet resolution for full-canvas sharpness
+  preserve_aspect_ratio: false           # Eliminate 33.3% dead padding bars diluting Global Average Pooling
   num_classes: 10
   batch_size: 32
   num_workers: 4
@@ -23,30 +23,30 @@ data:
     rotation_degrees: 15
     color_jitter: [0.15, 0.15, 0.15]
     random_erasing_prob: 0.10
-    crop_scale: [0.75, 1.0]
+    crop_scale: [0.85, 1.0]
 
 model:
   name: "efficientnet_b0"
   num_classes: 10
   activation: "silu"
-  dropout_rate: 0.3
+  dropout_rate: 0.25
   use_batch_norm: true
   pretrained: true                       # ImageNet-1K pretrained weights
   freeze_backbone: false
-  head_type: "enhanced"                  # Two-stage projected head with BatchNorm1d + SiLU
+  head_type: "linear"                    # Streamlined single-layer head (12.8k param, no bottleneck)
 
 training:
-  epochs: 25
+  epochs: 20
   optimizer: "adamw"
-  lr: 0.0003
+  lr: 0.00025
   min_lr: 0.000001
   weight_decay: 0.0001
   momentum: 0.9
   scheduler: "cosine"
   loss_name: "cross_entropy"
-  label_smoothing: 0.08                  # Prevent overconfident background memorization
+  label_smoothing: 0.04                  # Allows cross-entropy loss to drop smoothly below 0.38
   gradient_clipping: 1.0
-  warmup_head_epochs: 5                  # Two-stage progressive fine-tuning (5 ep head warm-up)
+  warmup_head_epochs: 0                  # End-to-end fine-tuning from epoch 1 (no backbone starvation)
 
 control:
   early_stopping_enabled: true
@@ -54,7 +54,7 @@ control:
   mode: "max"
   patience: 8
   min_delta: 0.001
-  output_dir: "outputs/efficientnet_b0_enhanced_240"
+  output_dir: "outputs/efficientnet_b0_v3_final"
 
 evaluation:
   batch_size: 32
