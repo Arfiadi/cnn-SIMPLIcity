@@ -25,9 +25,9 @@ def freeze_backbone_batchnorm(model: nn.Module) -> None:
     """Freeze BatchNorm layers to preserve ImageNet running statistics.
 
     When fine-tuning with frozen backbone or small datasets, BatchNorm running_mean
-    and running_var must NOT be updated by small-batch statistics.  This sets all
-    BatchNorm2d / BatchNorm1d modules to eval mode and disables their parameter
-    gradients.
+    and running_var must NOT be updated by small-batch statistics. This sets all
+    BatchNorm2d / BatchNorm1d modules in the backbone to eval mode and disables
+    their parameter gradients.
     """
     for module in model.modules():
         if isinstance(module, (nn.BatchNorm2d, nn.BatchNorm1d)):
@@ -82,7 +82,7 @@ def get_parameter_groups(
             "weight_decay": weight_decay,
         })
 
-    logger.info(
+    logger.debug(
         "Parameter groups: backbone=%d params (lr=%.6f), head=%d params (lr=%.6f)",
         sum(p.numel() for p in backbone_params),
         base_lr * backbone_lr_ratio,
@@ -97,6 +97,7 @@ def build_transfer_model(
     num_classes: int = 10,
     pretrained: bool = True,
     freeze_backbone: bool = False,
+    head_type: str = "standard",
 ) -> nn.Module:
     """Build a transfer learning model with modified classification head.
 
@@ -105,6 +106,7 @@ def build_transfer_model(
         num_classes: Target number of classes (default 10).
         pretrained: Whether to load ImageNet pre-trained weights.
         freeze_backbone: Whether to freeze feature extractor layers.
+        head_type: Classification head architecture ("standard" or "enhanced").
 
     Returns:
         nn.Module: Configured PyTorch model ready for fine-tuning.
@@ -120,7 +122,18 @@ def build_transfer_model(
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
         in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
+        if head_type.lower() == "enhanced":
+            model.fc = nn.Sequential(
+                nn.BatchNorm1d(in_features),
+                nn.Dropout(p=0.3),
+                nn.Linear(in_features, 256),
+                nn.ReLU(inplace=True),
+                nn.BatchNorm1d(256),
+                nn.Dropout(p=0.2),
+                nn.Linear(256, num_classes),
+            )
+        else:
+            model.fc = nn.Linear(in_features, num_classes)
         return model
 
     if name == "resnet34":
@@ -131,7 +144,18 @@ def build_transfer_model(
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
         in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
+        if head_type.lower() == "enhanced":
+            model.fc = nn.Sequential(
+                nn.BatchNorm1d(in_features),
+                nn.Dropout(p=0.3),
+                nn.Linear(in_features, 256),
+                nn.ReLU(inplace=True),
+                nn.BatchNorm1d(256),
+                nn.Dropout(p=0.2),
+                nn.Linear(256, num_classes),
+            )
+        else:
+            model.fc = nn.Linear(in_features, num_classes)
         return model
 
     # --- MobileNetV3 Family ---
@@ -166,7 +190,18 @@ def build_transfer_model(
                 param.requires_grad = False
             freeze_backbone_batchnorm(model)
         in_features = model.classifier[1].in_features
-        model.classifier[1] = nn.Linear(in_features, num_classes)
+        if head_type.lower() == "enhanced":
+            model.classifier = nn.Sequential(
+                nn.BatchNorm1d(in_features),
+                nn.Dropout(p=0.3),
+                nn.Linear(in_features, 256),
+                nn.SiLU(inplace=True),
+                nn.BatchNorm1d(256),
+                nn.Dropout(p=0.2),
+                nn.Linear(256, num_classes),
+            )
+        else:
+            model.classifier[1] = nn.Linear(in_features, num_classes)
         return model
 
     # --- ConvNeXt-Tiny ---
@@ -176,8 +211,6 @@ def build_transfer_model(
         if freeze_backbone:
             for param in model.parameters():
                 param.requires_grad = False
-            # ConvNeXt uses LayerNorm instead of BatchNorm — no BN drift risk,
-            # but we still freeze parameter gradients for consistency.
         in_features = model.classifier[2].in_features
         model.classifier[2] = nn.Linear(in_features, num_classes)
         return model

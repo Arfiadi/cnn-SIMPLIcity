@@ -11,6 +11,7 @@ import torch.nn as nn
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 
+from simplicity_cnn.models.transfer import get_parameter_groups
 from simplicity_cnn.training.tracker import TrainingTracker
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,11 @@ class Trainer:
         min_delta: float = 0.0005,
         label_smoothing: float = 0.0,
         multi_gpu: bool = False,
+        warmup_head_epochs: int = 0,
+        backbone_lr_ratio: float = 0.1,
+        base_lr: float = 3e-4,
+        min_lr: float = 1e-6,
+        weight_decay: float = 1e-4,
     ) -> None:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
@@ -65,6 +71,11 @@ class Trainer:
         self.monitor = monitor.lower()
         self.mode = mode.lower()
         self.min_delta = min_delta
+        self.warmup_head_epochs = warmup_head_epochs
+        self.backbone_lr_ratio = backbone_lr_ratio
+        self.base_lr = base_lr
+        self.min_lr = min_lr
+        self.weight_decay = weight_decay
 
         # Enable AMP only if CUDA is available and requested
         self.use_amp = use_amp and (self.device.type == "cuda")
@@ -75,6 +86,16 @@ class Trainer:
         # Baseline score tracker based on mode
         self.best_score: float = float("inf") if self.mode == "min" else float("-inf")
         self.best_epoch: int = -1
+
+        # Two-stage fine-tuning setup
+        if self.warmup_head_epochs > 0:
+            head_keywords = {"fc.", "classifier.", "head."}
+            for name, param in self.raw_model.named_parameters():
+                if not any(k in name for k in head_keywords):
+                    param.requires_grad = False
+            logger.debug(
+                "Two-stage warm-up: Backbone frozen for initial %d epochs", self.warmup_head_epochs
+            )
 
     @property
     def raw_model(self) -> nn.Module:
@@ -165,7 +186,7 @@ class Trainer:
             self.mode,
         )
 
-        table_header = f" {'Epoch':^7} | {'Train Loss':^10} | {'Train Acc':^9} | {'Val Loss':^10} | {'Val Acc':^9} | {'Val F1':^8} | {'LR':^10} | {'Status':^6}"
+        table_header = f" {'Epoch':^7} | {'Train Loss':^10} | {'Train Acc':^9} | {'Val Loss':^10} | {'Val Acc':^9} | {'Val F1':^8} | {'LR':^10} | {'Status':^8}"
         table_width = len(table_header)
         print("=" * table_width)
         print(table_header)
@@ -174,6 +195,32 @@ class Trainer:
         epochs_no_improve = 0
 
         for epoch in range(1, self.num_epochs + 1):
+            # Two-stage transition check: unfreeze backbone after warmup
+            if self.warmup_head_epochs > 0 and epoch == self.warmup_head_epochs + 1:
+                print("-" * table_width)
+                print(
+                    f" [Two-Stage Protocol] Head warm-up complete ({self.warmup_head_epochs} epochs). "
+                    f"Unfreezing backbone with differential LR (ratio: {self.backbone_lr_ratio:.3f})."
+                )
+                print("-" * table_width)
+                for param in self.raw_model.parameters():
+                    param.requires_grad = True
+
+                groups = get_parameter_groups(
+                    self.raw_model,
+                    base_lr=self.base_lr,
+                    backbone_lr_ratio=self.backbone_lr_ratio,
+                    weight_decay=self.weight_decay,
+                )
+                self.optimizer.param_groups.clear()
+                for g in groups:
+                    self.optimizer.add_param_group(g)
+
+                remaining = max(self.num_epochs - self.warmup_head_epochs, 1)
+                self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.optimizer, T_max=remaining, eta_min=self.min_lr
+                )
+
             train_loss, train_acc = self.train_one_epoch(epoch)
             val_loss, val_acc, val_macro_f1 = self.validate()
 
@@ -211,7 +258,11 @@ class Trainer:
                 if current_score < (self.best_score - self.min_delta):
                     improved = True
 
-            status = "*Best*" if improved else ""
+            if epoch <= self.warmup_head_epochs:
+                status = "*W/Best*" if improved else "*Warm*"
+            else:
+                status = "*Best*" if improved else ""
+
             print(
                 f" {epoch:>3d}/{self.num_epochs:<3d} | "
                 f"{train_loss:^10.4f} | "
@@ -220,7 +271,7 @@ class Trainer:
                 f"{val_acc:>6.2f}%  | "
                 f"{val_macro_f1:^8.4f} | "
                 f"{current_lr:^10.2e} | "
-                f"{status:^6}"
+                f"{status:^8}"
             )
 
             logger.debug(
@@ -244,8 +295,8 @@ class Trainer:
             else:
                 epochs_no_improve += 1
 
-            # Early stopping check
-            if epochs_no_improve >= self.patience:
+            # Early stopping check (do not trigger early stopping during warm-up)
+            if epoch > self.warmup_head_epochs and epochs_no_improve >= self.patience:
                 print("-" * table_width)
                 print(
                     f" [Early Stopping] Triggered at epoch {epoch} (patience {self.patience} reached without improvement in {self.monitor}). Best {self.monitor}: {self.best_score:.4f} at epoch {self.best_epoch}"

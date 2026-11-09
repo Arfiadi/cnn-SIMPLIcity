@@ -55,6 +55,28 @@ def parse_args() -> argparse.Namespace:
         help="Backbone LR ratio (e.g. 0.1 for 10x lower LR on backbone). Enables differential learning rate.",
     )
     parser.add_argument(
+        "--warmup-head-epochs",
+        type=int,
+        default=None,
+        help="Number of head-only warm-up epochs before unfreezing backbone.",
+    )
+    parser.add_argument(
+        "--preserve-aspect-ratio",
+        action="store_true",
+        help="Preserve aspect ratio using Letterbox padding instead of center crop.",
+    )
+    parser.add_argument(
+        "--head-type",
+        type=str,
+        default=None,
+        help="Head architecture type: standard or enhanced.",
+    )
+    parser.add_argument(
+        "--use-tta",
+        action="store_true",
+        help="Enable Test-Time Augmentation (TTA) during final evaluation.",
+    )
+    parser.add_argument(
         "--smoke-test",
         action="store_true",
         help="Run ultra-fast 2-epoch CPU verification on a micro subset of data.",
@@ -81,6 +103,14 @@ def main() -> None:
         overrides["environment.device"] = args.device
     if args.output_dir:
         overrides["control.output_dir"] = args.output_dir
+    if args.warmup_head_epochs is not None:
+        overrides["training.warmup_head_epochs"] = args.warmup_head_epochs
+    if args.preserve_aspect_ratio:
+        overrides["data.preserve_aspect_ratio"] = True
+    if args.head_type:
+        overrides["model.head_type"] = args.head_type
+    if args.use_tta:
+        overrides["evaluation.use_tta"] = True
 
     cfg = load_config(args.config, overrides=overrides)
 
@@ -135,12 +165,14 @@ def main() -> None:
         color_jitter_params=cfg.data.augmentation.color_jitter,
         crop_scale=cfg.data.augmentation.crop_scale,
         random_erasing_prob=cfg.data.augmentation.random_erasing_prob,
+        preserve_aspect_ratio=cfg.data.preserve_aspect_ratio,
     )
     eval_transform = build_transforms(
         img_size=img_size,
         augment=False,
         mean=cfg.data.mean,
         std=cfg.data.std,
+        preserve_aspect_ratio=cfg.data.preserve_aspect_ratio,
     )
 
     train_ds = SIMPLIcityDataset(
@@ -184,14 +216,15 @@ def main() -> None:
         activation=cfg.model.activation,
         pretrained=cfg.model.pretrained,
         freeze_backbone=cfg.model.freeze_backbone,
+        head_type=cfg.model.head_type,
     )
 
     # 5. Optimizer & Criterion
     criterion = nn.CrossEntropyLoss(label_smoothing=cfg.training.label_smoothing)
 
     # Parameter groups (differential learning rate if requested)
-    backbone_ratio = args.backbone_lr_ratio
-    if backbone_ratio is not None and 0.0 < backbone_ratio < 1.0:
+    backbone_ratio = args.backbone_lr_ratio or 0.1
+    if 0.0 < backbone_ratio < 1.0:
         param_groups = get_parameter_groups(
             model,
             base_lr=cfg.training.lr,
@@ -226,9 +259,14 @@ def main() -> None:
     # 6. Scheduler
     scheduler: Any = None
     sched_name = cfg.training.scheduler.lower()
+    sched_epochs = (
+        max(cfg.training.epochs - cfg.training.warmup_head_epochs, 1)
+        if cfg.training.warmup_head_epochs > 0
+        else cfg.training.epochs
+    )
     if sched_name == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=cfg.training.epochs, eta_min=cfg.training.min_lr
+            optimizer, T_max=sched_epochs, eta_min=cfg.training.min_lr
         )
     elif sched_name == "plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -236,7 +274,7 @@ def main() -> None:
         )
     elif sched_name == "step":
         scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=max(cfg.training.epochs // 3, 1), gamma=0.2
+            optimizer, step_size=max(sched_epochs // 3, 1), gamma=0.2
         )
 
     # 7. Trainer execution
@@ -261,6 +299,11 @@ def main() -> None:
         min_delta=cfg.control.min_delta,
         label_smoothing=cfg.training.label_smoothing,
         multi_gpu=args.multi_gpu,
+        warmup_head_epochs=cfg.training.warmup_head_epochs,
+        backbone_lr_ratio=backbone_ratio,
+        base_lr=cfg.training.lr,
+        min_lr=cfg.training.min_lr,
+        weight_decay=cfg.training.weight_decay,
     )
 
     # Print concise execution summary card
@@ -270,16 +313,17 @@ def main() -> None:
         else str(device)
     )
     lr_desc = f"{cfg.training.lr:.2e}"
-    if backbone_ratio is not None and 0.0 < backbone_ratio < 1.0:
+    if 0.0 < backbone_ratio < 1.0:
         lr_desc += f" (backbone: {cfg.training.lr * backbone_ratio:.2e})"
 
-    banner_width = 91
+    banner_width = 93
+    aspect_desc = "Letterbox" if cfg.data.preserve_aspect_ratio else "CenterCrop"
     print("=" * banner_width)
     print(f" SIMPLIcity Experiment : {cfg.experiment_name}")
-    print(f" Architecture          : {cfg.model.name} (Pretrained: {cfg.model.pretrained})")
+    print(f" Architecture          : {cfg.model.name} (Head: {cfg.model.head_type}, Pretrained: {cfg.model.pretrained})")
     print(f" Compute Device        : {device_desc} | Multi-GPU: {trainer_multi_gpu} | AMP: {use_amp}")
-    print(f" Data Configuration    : Batch: {cfg.data.batch_size} | Size: {img_size[0]}x{img_size[1]} | Workers: {num_workers}")
-    print(f" Optimization          : {cfg.training.epochs} epochs | Opt: {cfg.training.optimizer} (LR: {lr_desc}) | Loss: CE (Smooth: {cfg.training.label_smoothing})")
+    print(f" Data Configuration    : Batch: {cfg.data.batch_size} | Size: {img_size[0]}x{img_size[1]} ({aspect_desc}) | Workers: {num_workers}")
+    print(f" Optimization          : {cfg.training.epochs} ep (Warmup: {cfg.training.warmup_head_epochs} ep) | Opt: {cfg.training.optimizer} (LR: {lr_desc})")
     print("=" * banner_width)
 
     train_results = trainer.fit()
@@ -292,22 +336,24 @@ def main() -> None:
         ckpt = torch.load(best_checkpoint, map_location=device, weights_only=True)
         eval_model.load_state_dict(ckpt["model_state_dict"])
 
-    logger.debug("Running evaluation on test split (%d samples)...", len(test_ds))
+    use_tta = cfg.evaluation.use_tta or args.use_tta
+    logger.debug("Running evaluation on test split (%d samples, TTA=%s)...", len(test_ds), use_tta)
     eval_results = evaluate_model(
         model=eval_model,
         test_loader=test_loader,
         device=device,
         class_names=CLASS_NAMES,
         output_dir=output_dir / "evaluation",
+        use_tta=use_tta,
     )
 
     print("\n" + "=" * banner_width)
     print(" SIMPLIcity CNN Experiment Complete!")
     print("=" * banner_width)
     print(f" Experiment Name    : {cfg.experiment_name}")
-    print(f" Model Architecture : {cfg.model.name}")
+    print(f" Model Architecture : {cfg.model.name} (Head: {cfg.model.head_type})")
     print(f" Best {cfg.control.monitor:<13} : {train_results['best_score']:.4f} (Epoch {train_results['best_epoch']})")
-    print(f" Test Accuracy      : {eval_results['accuracy'] * 100:.2f}%")
+    print(f" Test Accuracy      : {eval_results['accuracy'] * 100:.2f}% (TTA: {use_tta})")
     print(f" Test Macro F1      : {eval_results['macro_f1']:.4f}")
     print(f" Artifacts Saved To : {output_dir.resolve()}")
     print("=" * banner_width)

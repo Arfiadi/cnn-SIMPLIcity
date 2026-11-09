@@ -39,6 +39,7 @@ class DataConfig:
     batch_size: int = 32
     num_workers: int = 2
     pin_memory: bool = True
+    preserve_aspect_ratio: bool = False
     mean: list[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
     std: list[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
     augmentation: DataAugmentationConfig = field(default_factory=DataAugmentationConfig)
@@ -53,6 +54,7 @@ class ModelConfig:
     use_batch_norm: bool = True
     pretrained: bool = True
     freeze_backbone: bool = False
+    head_type: str = "standard"
 
 
 @dataclass
@@ -67,6 +69,7 @@ class TrainingConfig:
     loss_name: str = "cross_entropy"
     label_smoothing: float = 0.0
     gradient_clipping: float = 1.0
+    warmup_head_epochs: int = 0
 
 
 @dataclass
@@ -87,6 +90,7 @@ class EvaluationConfig:
     )
     generate_confusion_matrix: bool = True
     error_analysis_top_k: int = 10
+    use_tta: bool = False
 
 
 @dataclass
@@ -219,10 +223,10 @@ def print_config_summary(yaml_path: str | Path) -> ExperimentConfig:
     print(f" EXPERIMENT CONFIG CARD: {cfg.experiment_name} ({p.name})")
     print("-" * width)
     print(
-        f"  Model       : {cfg.model.name} (Classes: {cfg.model.num_classes}, Input: {cfg.data.img_size}, Pretrained: {cfg.model.pretrained})"
+        f"  Model       : {cfg.model.name} (Classes: {cfg.model.num_classes}, Input: {cfg.data.img_size}, Pretrained: {cfg.model.pretrained}, Head: {cfg.model.head_type})"
     )
     print(
-        f"  Training    : {cfg.training.epochs} epochs | Batch: {cfg.data.batch_size} | Opt: {cfg.training.optimizer} (LR: {cfg.training.lr}, WD: {cfg.training.weight_decay}) | Sched: {cfg.training.scheduler}"
+        f"  Training    : {cfg.training.epochs} epochs | Batch: {cfg.data.batch_size} | Opt: {cfg.training.optimizer} (LR: {cfg.training.lr}, WD: {cfg.training.weight_decay}) | Warmup: {cfg.training.warmup_head_epochs} ep"
     )
     print(
         f"  Objective   : {cfg.training.loss_name} (label_smoothing: {cfg.training.label_smoothing}) | EarlyStop: {cfg.control.early_stopping_enabled} (patience: {cfg.control.patience}, monitor: {cfg.control.monitor} {cfg.control.mode})"
@@ -233,7 +237,8 @@ def print_config_summary(yaml_path: str | Path) -> ExperimentConfig:
         if aug.enabled
         else "Disabled"
     )
-    print(f"  Augment     : {aug_desc}")
+    aspect_desc = "Letterbox" if cfg.data.preserve_aspect_ratio else "CenterCrop"
+    print(f"  Geometry    : {aspect_desc} | Augment: {aug_desc}")
     print(f"  Artifacts   : {cfg.control.output_dir}")
     print("=" * width)
     return cfg

@@ -40,7 +40,7 @@ def build_model(
         input_size: Input spatial dimensions (H, W).
         pretrained: For transfer models, load pretrained ImageNet weights.
         freeze_backbone: For transfer models, freeze backbone weights.
-        **kwargs: Additional model parameters.
+        **kwargs: Additional model parameters (e.g. head_type).
 
     Returns:
         nn.Module: Instantiated PyTorch model.
@@ -71,16 +71,18 @@ def build_model(
         "convnext_tiny",
     }:
         logger.info(
-            "Instantiating transfer model '%s' (pretrained=%s, freeze=%s)",
+            "Instantiating transfer model '%s' (pretrained=%s, freeze=%s, head_type=%s)",
             name,
             pretrained,
             freeze_backbone,
+            kwargs.get("head_type", "standard"),
         )
         return build_transfer_model(
             model_name=name,
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=freeze_backbone,
+            head_type=kwargs.get("head_type", "standard"),
         )
 
     raise ValueError(f"Unknown model name: '{model_name}'. Available: {AVAILABLE_MODELS}")

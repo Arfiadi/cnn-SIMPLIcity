@@ -24,6 +24,7 @@ def evaluate_model(
     device: torch.device,
     class_names: list[str],
     output_dir: Path | str,
+    use_tta: bool = False,
 ) -> dict[str, Any]:
     """Perform detailed evaluation on test dataset and save diagnostic artifacts.
 
@@ -33,6 +34,7 @@ def evaluate_model(
         device: Device to run evaluation on.
         class_names: List of class labels (ordered 0..C-1).
         output_dir: Path to store generated plots and metrics report.
+        use_tta: If True, apply horizontal flip Test-Time Augmentation (TTA).
 
     Returns:
         dict: Evaluation metrics and error analysis findings.
@@ -50,6 +52,13 @@ def evaluate_model(
         images = images.to(device)
         outputs = model(images)
         probs = torch.softmax(outputs, dim=1)
+
+        if use_tta:
+            flipped_images = torch.flip(images, dims=[3])
+            flipped_outputs = model(flipped_images)
+            flipped_probs = torch.softmax(flipped_outputs, dim=1)
+            probs = (probs + flipped_probs) * 0.5
+
         confidences, preds = probs.max(dim=1)
 
         all_preds.extend(preds.cpu().numpy().tolist())

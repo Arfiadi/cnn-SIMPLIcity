@@ -193,3 +193,79 @@ def test_dataparallel_checkpoint_unwrap():
 
     for key in state:
         assert not key.startswith("module."), f"Key '{key}' should not have 'module.' prefix"
+
+
+def test_letterbox_pad_transforms():
+    """Verify LetterboxPad preserves aspect ratio and outputs exact (3, 240, 240)."""
+    from PIL import Image
+
+    from simplicity_cnn.data.transforms import LetterboxPad
+
+    padder = LetterboxPad(target_size=(240, 240), fill=0)
+
+    # 1. Landscape tensor [3, 256, 384]
+    t_land = torch.randn(3, 256, 384)
+    out_land = padder(t_land)
+    assert out_land.shape == (3, 240, 240), f"Expected (3, 240, 240), got {out_land.shape}"
+
+    # 2. Portrait tensor [3, 384, 256]
+    t_port = torch.randn(3, 384, 256)
+    out_port = padder(t_port)
+    assert out_port.shape == (3, 240, 240), f"Expected (3, 240, 240), got {out_port.shape}"
+
+    # 3. PIL image
+    img = Image.new("RGB", (384, 256))
+    out_pil = padder(img)
+    assert out_pil.size == (240, 240), f"Expected (240, 240), got {out_pil.size}"
+
+
+def test_efficientnet_enhanced_head():
+    """Verify EfficientNet-B0 with enhanced two-layer head outputs correct shape."""
+    model = build_model(
+        model_name="efficientnet_b0",
+        num_classes=10,
+        pretrained=False,
+        head_type="enhanced",
+    )
+    dummy_input = torch.randn(2, 3, 240, 240)
+    output = model(dummy_input)
+    assert output.shape == (2, 10), f"Expected (2, 10), got {output.shape}"
+
+    groups = get_parameter_groups(model, base_lr=3e-4, backbone_lr_ratio=0.1)
+    assert len(groups) == 2, "Expected 2 parameter groups (backbone and enhanced head)"
+    assert groups[1]["lr"] == 3e-4, "Head LR should match base_lr"
+    assert abs(groups[0]["lr"] - 3e-5) < 1e-8, "Backbone LR should be 10x lower"
+
+
+def test_evaluate_model_with_tta(tmp_path):
+    """Verify evaluate_model runs cleanly with use_tta=True."""
+    from torch.utils.data import DataLoader, Dataset
+
+    from simplicity_cnn.evaluation.metrics import evaluate_model
+
+    model = build_model("efficientnet_b0", num_classes=10, pretrained=False)
+    dummy_images = torch.randn(6, 3, 240, 240)
+    dummy_targets = torch.tensor([0, 1, 2, 3, 4, 5])
+    dummy_names = [f"test_{i}.jpg" for i in range(6)]
+
+    class MockDataset(Dataset):
+        def __len__(self):
+            return 6
+
+        def __getitem__(self, idx):
+            return dummy_images[idx], dummy_targets[idx], dummy_names[idx]
+
+    loader = DataLoader(MockDataset(), batch_size=2)
+    dev = torch.device("cpu")
+    class_names = [f"class_{i}" for i in range(10)]
+
+    results = evaluate_model(
+        model=model,
+        test_loader=loader,
+        device=dev,
+        class_names=class_names,
+        output_dir=tmp_path / "eval_tta",
+        use_tta=True,
+    )
+    assert "accuracy" in results
+    assert "macro_f1" in results
