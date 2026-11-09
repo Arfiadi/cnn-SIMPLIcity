@@ -187,7 +187,9 @@ def get_cuda_device_info() -> dict[str, Any]:
     devices: list[str] = []
     for i in range(count):
         name = torch.cuda.get_device_name(i)
-        mem_gb = torch.cuda.get_device_properties(i).total_mem / (1024 ** 3)
+        props = torch.cuda.get_device_properties(i)
+        mem_bytes = getattr(props, "total_memory", getattr(props, "total_mem", 0))
+        mem_gb = mem_bytes / (1024 ** 3)
         devices.append(f"{name} ({mem_gb:.1f} GB)")
     return {
         "available": True,
