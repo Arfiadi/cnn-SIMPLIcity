@@ -1,24 +1,60 @@
+experiment_name: "smoke_test"
+
+environment:
+  device: "cpu"
+  precision: "fp32"
+  seed: 42
+  deterministic_cudnn: true
+
 data:
+  dataset_name: "SIMPLIcity"
   data_dir: null
   img_size: [128, 128]
+  num_classes: 10
   batch_size: 4
   num_workers: 0
+  pin_memory: false
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5
+    rotation_degrees: 10
+    color_jitter: [0.1, 0.1, 0.1]
+    random_erasing_prob: 0.0
+    crop_scale: [0.8, 1.0]
 
 model:
   name: "baseline_custom"
   num_classes: 10
   activation: "relu"
+  dropout_rate: 0.0
+  use_batch_norm: false
+  pretrained: false
+  freeze_backbone: false
 
 training:
   epochs: 2
-  lr: 0.001
-  weight_decay: 0.0
   optimizer: "adam"
+  lr: 0.001
+  min_lr: 0.0001
+  weight_decay: 0.0
+  momentum: 0.9
   scheduler: "none"
-  patience: 2
-  grad_clip: 1.0
-  seed: 42
-  device: "cpu"
+  loss_name: "cross_entropy"
+  label_smoothing: 0.0
+  gradient_clipping: 1.0
 
-output:
-  dir: "outputs/smoke_test"
+control:
+  early_stopping_enabled: true
+  monitor: "val_acc"
+  mode: "max"
+  patience: 2
+  min_delta: 0.001
+  output_dir: "outputs/smoke_test"
+
+evaluation:
+  batch_size: 4
+  metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
+  generate_confusion_matrix: true
+  error_analysis_top_k: 5

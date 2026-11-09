@@ -1,0 +1,60 @@
+experiment_name: "custom_scratch_eda_treatment"
+
+environment:
+  device: "auto"
+  precision: "amp_fp16"
+  seed: 42
+  deterministic_cudnn: true
+
+data:
+  dataset_name: "SIMPLIcity"
+  data_dir: null
+  img_size: [128, 128]
+  num_classes: 10
+  batch_size: 32
+  num_workers: 2
+  pin_memory: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5            # Random horizontal flip
+    rotation_degrees: 15                 # Controlled slight rotation
+    color_jitter: [0.25, 0.25, 0.20]     # EDA Mitigasi 1: Perturb background brightness shortcut
+    random_erasing_prob: 0.20            # EDA Mitigasi 2: Random patch erasing to destroy uniform backgrounds
+    crop_scale: [0.75, 1.0]              # EDA Mitigasi 3: Aspect ratio & scale perturbation
+
+model:
+  name: "custom_scratch"                 # Deep CNN from scratch with BatchNorm & Adaptive Pooling
+  num_classes: 10
+  activation: "leaky_relu"
+  dropout_rate: 0.40                     # FC Dropout
+  use_batch_norm: true
+  pretrained: false
+  freeze_backbone: false
+
+training:
+  epochs: 35
+  optimizer: "adamw"
+  lr: 0.001
+  min_lr: 0.00001
+  weight_decay: 0.0005                   # EDA Mitigasi 4: Higher L2 penalty for Small-N data (N=50/class)
+  momentum: 0.9
+  scheduler: "cosine"
+  loss_name: "cross_entropy"
+  label_smoothing: 0.10                  # EDA Mitigasi 5: Soften target distribution against overconfident memorization
+  gradient_clipping: 1.0
+
+control:
+  early_stopping_enabled: true
+  monitor: "val_macro_f1"                # EDA Mitigasi 6: Optimize balanced multi-class performance
+  mode: "max"
+  patience: 10
+  min_delta: 0.001
+  output_dir: "outputs/custom_scratch_regularized"
+
+evaluation:
+  batch_size: 32
+  metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
+  generate_confusion_matrix: true
+  error_analysis_top_k: 10

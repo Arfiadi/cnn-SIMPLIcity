@@ -60,6 +60,8 @@ artifacts/
 # Datasets
 Dataset/
 data/
+*.csv
+scratch_eda_summary.json
 
 # OS specific
 .DS_Store

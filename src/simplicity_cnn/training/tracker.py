@@ -23,6 +23,7 @@ class TrainingTracker:
             "train_acc": [],
             "val_loss": [],
             "val_acc": [],
+            "val_macro_f1": [],
             "lr": [],
         }
 
@@ -34,6 +35,7 @@ class TrainingTracker:
         val_loss: float,
         val_acc: float,
         lr: float,
+        val_macro_f1: float = 0.0,
     ) -> None:
         """Append one epoch's performance metrics."""
         self.history["epoch"].append(epoch)
@@ -41,6 +43,7 @@ class TrainingTracker:
         self.history["train_acc"].append(train_acc)
         self.history["val_loss"].append(val_loss)
         self.history["val_acc"].append(val_acc)
+        self.history["val_macro_f1"].append(val_macro_f1)
         self.history["lr"].append(lr)
 
     def save_json(self, filename: str = "history.json") -> Path:
@@ -140,9 +143,15 @@ class TrainingTracker:
 
         ax2.plot(epochs, self.history["train_acc"], label="Train Acc", marker="o", color="#2ca02c")
         ax2.plot(epochs, self.history["val_acc"], label="Val Acc", marker="s", color="#d62728")
-        ax2.set_title("Accuracy Progression", fontsize=12, fontweight="bold")
+        if any(v > 0 for v in self.history["val_macro_f1"]):
+            f1_pct = [v * 100 for v in self.history["val_macro_f1"]]
+            ax2.plot(
+                epochs, f1_pct, label="Val Macro F1 (%)", marker="^", color="#9467bd", linestyle=":"
+            )
+
+        ax2.set_title("Accuracy & F1 Progression", fontsize=12, fontweight="bold")
         ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Accuracy (%)")
+        ax2.set_ylabel("Metric (%)")
         ax2.grid(True, linestyle="--", alpha=0.5)
         ax2.legend()
 

@@ -1,0 +1,60 @@
+experiment_name: "baseline_custom_control"
+
+environment:
+  device: "auto"
+  precision: "amp_fp16"
+  seed: 42
+  deterministic_cudnn: true
+
+data:
+  dataset_name: "SIMPLIcity"
+  data_dir: null
+  img_size: [128, 128]
+  num_classes: 10
+  batch_size: 32
+  num_workers: 2
+  pin_memory: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5
+    rotation_degrees: 10
+    color_jitter: [0.0, 0.0, 0.0]        # Control group: no photometric jitter
+    random_erasing_prob: 0.0             # Control group: no erasing
+    crop_scale: [1.0, 1.0]               # Standard resize
+
+model:
+  name: "baseline_custom"                # Slide 6 architecture (Conv64 -> Conv128 -> FC128 -> FC10)
+  num_classes: 10
+  activation: "relu"
+  dropout_rate: 0.0
+  use_batch_norm: false
+  pretrained: false
+  freeze_backbone: false
+
+training:
+  epochs: 30
+  optimizer: "adamw"
+  lr: 0.001
+  min_lr: 0.00001
+  weight_decay: 0.0001
+  momentum: 0.9
+  scheduler: "cosine"
+  loss_name: "cross_entropy"
+  label_smoothing: 0.0                  # No label smoothing in baseline
+  gradient_clipping: 1.0
+
+control:
+  early_stopping_enabled: true
+  monitor: "val_loss"
+  mode: "min"
+  patience: 10
+  min_delta: 0.0005
+  output_dir: "outputs/baseline_custom"
+
+evaluation:
+  batch_size: 32
+  metrics: ["accuracy", "macro_precision", "macro_recall", "macro_f1"]
+  generate_confusion_matrix: true
+  error_analysis_top_k: 10
